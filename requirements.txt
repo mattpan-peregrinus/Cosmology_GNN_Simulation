@@ -1,0 +1,18 @@
+# Numerical and scientific computing.
+numpy>=1.19.2
+
+# PyTorch and related ecosystem.
+torch>=1.8.0
+
+# PyTorch Geometric and its dependencies.
+torch-scatter>=2.0.9
+torch-sparse>=0.6.12
+torch-cluster>=1.5.9
+torch-spline-conv>=1.2.1
+torch-geometric>=2.0.4
+
+# For graph connectivity (uses scikit-learn's KDTree).
+scikit-learn>=0.24.1
+
+# For visualization.
+matplotlib>=3.3.4
