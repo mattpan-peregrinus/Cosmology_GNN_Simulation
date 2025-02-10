@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # Import our converted graph network.
-from learning_to_simulate import graph_network
+import graph_network
 # Import connectivity utilities.
-from learning_to_simulate import connectivity_utils
+import connectivity_utils
 
 # A small epsilon for numerical stability.
 STD_EPSILON = 1e-8
