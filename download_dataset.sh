@@ -12,8 +12,8 @@ if [ "$#" -ne 2 ]; then
   exit 1
 fi
 
-DATASET_NAME="${1}"
-OUTPUT_DIR="${2}/${DATASET_NAME}"
+DATASET_NAME="${1}"  # The name of the dataset to download.
+OUTPUT_DIR="${2}/${DATASET_NAME}"  # Target directory to save the dataset.
 
 # Base URL for the dataset.
 BASE_URL="https://storage.googleapis.com/learning-to-simulate-complex-physics/Datasets/${DATASET_NAME}/"
@@ -22,6 +22,14 @@ BASE_URL="https://storage.googleapis.com/learning-to-simulate-complex-physics/Da
 mkdir -p "${OUTPUT_DIR}"
 
 # List of files to download.
-for file in metadata.json train.tfrecord valid.tfrecord test.tfrecord; do
-  wget -O "${OUTPUT_DIR}/${file}" "${BASE_URL}${file}"
+FILES=(
+  "metadata.json"
+  "train.tfrecord"
+  "valid.tfrecord"
+  "test.tfrecord"
+)
+
+# Download each file from the dataset.
+for FILE in "${FILES[@]}"; do
+  wget -O "${OUTPUT_DIR}/${FILE}" "${BASE_URL}${FILE}"
 done
