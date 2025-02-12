@@ -13,8 +13,8 @@ from torch.utils.data import DataLoader
 # Import our converted modules.
 import learned_simulator
 import noise_utils
-import reading_utils  # Assumed to provide a PyTorch Dataset & collate_fn.
-import connectivity_utils  # (Converted to return PyTorch tensors, etc.)
+import reading_utils  
+import connectivity_utils  
 
 # Global constants.
 INPUT_SEQUENCE_LENGTH = 6  # The number of timesteps used for inputs (target is the final step).
@@ -74,7 +74,7 @@ def prepare_rollout_inputs(context, features):
     return out_dict, target_position
 
 
-def get_dataset(data_path, mode, split):
+def get_dataset(data_path, mode, split, metadata):
     """
     Returns a PyTorch Dataset corresponding to the data.
     (Here we assume that reading_utils.get_dataset is implemented to read your TFRecord‐converted data.)
@@ -83,8 +83,9 @@ def get_dataset(data_path, mode, split):
       mode: One of 'one_step_train', 'one_step', or 'rollout'.
       split: One of 'train', 'valid', or 'test'.
     """
+    window_length = INPUT_SEQUENCE_LENGTH + 1;
     return reading_utils.get_dataset(
-        data_path, mode=mode, split=split, input_sequence_length=INPUT_SEQUENCE_LENGTH + 1)
+        data_path, mode=mode, split=split, window_length=window_length, metadata=metadata)
 
 
 def rollout(simulator, features, num_steps, device):
@@ -197,6 +198,7 @@ def train_one_step(simulator, dataloader, optimizer, noise_std, device, num_step
         for batch in dataloader:
             # Prepare the inputs (transpose positions, extract target, add n_particles).
             batch, target_position = prepare_inputs(batch)
+            print("Batch position shape:", batch['position'].shape) # Debugging print
             # Move all tensor values to device.
             for key in batch:
                 if isinstance(batch[key], torch.Tensor):
@@ -323,7 +325,7 @@ def main():
         # For one-step training/evaluation.
         mode_str = 'one_step_train' if args.mode == 'train' else 'one_step'
         split = 'train' if args.mode == 'train' else args.eval_split
-        dataset = get_dataset(args.data_path, mode=mode_str, split=split)
+        dataset = get_dataset(args.data_path, mode=mode_str, split=split, metadata=metadata)
         dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=(args.mode == 'train'),
                                 collate_fn=reading_utils.collate_fn)
         if args.mode == 'train':
@@ -346,7 +348,7 @@ def main():
         if args.output_path is None:
             raise ValueError("A rollout output path must be provided.")
         # For rollout evaluation, we use batch size 1.
-        dataset = get_dataset(args.data_path, mode='rollout', split=args.eval_split)
+        dataset = get_dataset(args.data_path, mode='rollout', split=args.eval_split, metadata=metadata)
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=reading_utils.collate_fn)
         simulator.load_state_dict(torch.load(os.path.join(args.model_path, 'model.pth'),
                                              map_location=device))

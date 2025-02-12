@@ -27,6 +27,9 @@ def get_random_walk_noise_for_position_sequence(position_sequence, noise_std_las
     # Compute velocity differences; shape will be [num_particles, sequence_length - 1, num_dimensions].
     velocity_sequence = learned_simulator.time_diff(position_sequence)
     
+    if velocity_sequence.shape[1] < 1:
+      raise ValueError(f"Input position sequence must have at least 2 timesteps. Got shape: {position_sequence.shape}")
+    
     # Determine the number of velocity timesteps.
     num_velocities = velocity_sequence.shape[1]
     
