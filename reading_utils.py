@@ -200,7 +200,10 @@ class SimulationDataset(Dataset):
         # Split the trajectory into sliding windows.
         windows = split_trajectory(context, features, window_length=self.window_length)
         # For simplicity, return the first sliding window.
-        sample = windows[0]
+        sample = windows[0]        
+        if sample['position'].shape[1] == 1:
+            sample['position'] = sample['position'].squeeze(1)
+                
         if self.transform is not None:
             sample = self.transform(sample)
         return sample
@@ -265,15 +268,11 @@ def get_dataset(data_path, mode, split, window_length=7, metadata=None, transfor
 
 def collate_fn(batch):
     """
-    A simple collate function that assumes each sample in the batch is a dictionary
-    with the same keys and that each value is a tensor. It stacks the tensors.
+    A custom collate function that ensures a new batch dimension is added at the front.
+    Each sample in the batch is assumed to be a dictionary with tensor values.
     """
     collated = {}
-    # Loop over keys in the first sample.
     for key in batch[0]:
-        try:
-            collated[key] = torch.stack([sample[key] for sample in batch])
-        except Exception:
-            # If stacking fails (e.g., for non-tensor items), use a list.
-            collated[key] = [sample[key] for sample in batch]
+        # For each sample, unsqueeze a new dimension at the front, then concatenate along dim 0.
+        collated[key] = torch.cat([sample[key].unsqueeze(0) for sample in batch], dim=0)
     return collated
