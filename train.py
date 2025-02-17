@@ -43,6 +43,14 @@ def prepare_inputs(tensor_dict):
     Additionally, it adds an extra tensor (with one element) giving the number 
     of particles per example.
     """
+    # If there is a batch dimension, remove it.
+    if tensor_dict['position'].dim() == 4:
+        # Assuming batch size is 1.
+        for key in tensor_dict:
+            if isinstance(tensor_dict[key], torch.Tensor) and tensor_dict[key].size(0) == 1:
+                tensor_dict[key] = tensor_dict[key].squeeze(0)
+    
+    # Now tensor_dict['position'] should have shape [sequence_length, num_particles, dim]
     pos = tensor_dict['position'].transpose(0, 1)  # now [num_particles, sequence_length, dim]
     target_position = pos[:, -1]  # [num_particles, dim]
     tensor_dict['position'] = pos[:, :-1]  # Remove target time step.
@@ -190,7 +198,7 @@ def train_one_step(simulator, dataloader, optimizer, noise_std, device, num_step
     Trains the simulator for a given number of steps.
     For each batch, samples random-walk noise, computes the predicted and target
     normalized accelerations, applies a mask to ignore kinematic particles, computes
-    an MSE loss, and runs an optimizer step.
+    an MSE loss, and runs an optimizer step.`
     """
     simulator.train()
     global_step = 0
