@@ -78,22 +78,20 @@ class LearnedSimulator(nn.Module):
 
     def _encoder_preprocessor(self, position_sequence, n_node, global_context, particle_types):
         """
-        Constructs a graph from the position sequence.
-        Extracts velocity information, computes connectivity, and builds node and edge features.
-        
+        Constructs a graph from the position sequence for GraphSAGE processing.
+        Focuses on building rich node features since GraphSAGE primarily uses node information.
+    
         Args:
           position_sequence: Tensor of shape [num_particles, sequence_length, num_dimensions]
           n_node: Number (or tensor/list) of nodes per graph in the batch.
           global_context: Tensor of shape [batch_size, context_size] (optional).
           particle_types: Tensor of shape [num_particles] with integer types (optional).
-        
+    
         Returns:
           A torch_geometric.data.Data object containing:
-            - x: concatenated node features.
-            - edge_index: [2, num_edges] connectivity.
-            - edge_attr: concatenated edge features.
-            - globals (optional): normalized global context.
-            Additional fields (n_node, n_edge) are attached as attributes.
+            - x: concatenated node features
+            - edge_index: [2, num_edges] connectivity
+            - globals (optional): normalized global context
         """
         # Get the most recent positions.
         most_recent_position = position_sequence[:, -1]  # [num_particles, num_dimensions]
@@ -107,43 +105,40 @@ class LearnedSimulator(nn.Module):
 
         # Build node features.
         node_features = []
-
-        # Normalize velocity sequence.
+        
+        # 1. Position features.
+        node_features.append(most_recent_position)
+        
+        # 2. Velocity features.
         velocity_stats = self._normalization_stats["velocity"]
         normalized_velocity_sequence = (velocity_sequence - velocity_stats.mean) / velocity_stats.std
-        # Merge time and spatial dimensions (flatten dims 1 and 2).
         flat_velocity_sequence = normalized_velocity_sequence.reshape(normalized_velocity_sequence.size(0), -1)
         node_features.append(flat_velocity_sequence)
-
-        # Process boundaries.
-        # Convert boundaries (assumed shape [num_dimensions, 2]) to a tensor.
+        
+        # 3. Boundary features.
         boundaries = torch.tensor(self._boundaries, dtype=most_recent_position.dtype,
-                                  device=most_recent_position.device)
-        # Compute distances to lower and upper boundaries.
+                              device=most_recent_position.device)
         distance_to_lower_boundary = most_recent_position - boundaries[:, 0].unsqueeze(0)
         distance_to_upper_boundary = boundaries[:, 1].unsqueeze(0) - most_recent_position
         distance_to_boundaries = torch.cat([distance_to_lower_boundary, distance_to_upper_boundary], dim=-1)
         normalized_clipped_distance_to_boundaries = torch.clamp(
             distance_to_boundaries / self._connectivity_radius, -1., 1.)
         node_features.append(normalized_clipped_distance_to_boundaries)
-
-        # Particle type embeddings.
+        
+        # 4. Particle type embeddings. 
         if self._num_particle_types > 1 and particle_types is not None:
-            particle_type_embeddings = self._particle_type_embedding(particle_types)
-            node_features.append(particle_type_embeddings)
+          particle_type_embeddings = self._particle_type_embedding(particle_types)
+          node_features.append(particle_type_embeddings)
+          
+        # 5. Optional: Add more node features here
+        # For example:
+        # - Local density features
+        # - Historical movement patterns
+        # - Aggregated neighborhood statistics
+        # TODO: Add additional node features as needed
 
         # Concatenate all node features.
         nodes = torch.cat(node_features, dim=-1)
-
-        # Build edge features.
-        edge_features = []
-        # Relative displacements normalized to connectivity radius.
-        normalized_relative_displacements = (most_recent_position[senders] - most_recent_position[receivers]) / self._connectivity_radius
-        edge_features.append(normalized_relative_displacements)
-        # Norm (distance) of the relative displacements.
-        normalized_relative_distances = torch.norm(normalized_relative_displacements, dim=-1, keepdim=True)
-        edge_features.append(normalized_relative_distances)
-        edges = torch.cat(edge_features, dim=-1)
 
         # Normalize global context if provided.
         globals_val = None
@@ -156,13 +151,15 @@ class LearnedSimulator(nn.Module):
         # Build a PyTorch Geometric Data object.
         from torch_geometric.data import Data
         edge_index = torch.stack([senders, receivers], dim=0)
-        data = Data(x=nodes, edge_index=edge_index, edge_attr=edges)
+        # Note: We don't include edge_attr since GraphSAGE doesn't use it
+        data = Data(x=nodes, edge_index=edge_index)
         if globals_val is not None:
             data.globals = globals_val
         data.n_node = n_node
         data.n_edge = n_edge
         return data
-
+    
+    
     def _decoder_postprocessor(self, normalized_acceleration, position_sequence):
         """
         Converts the model's output from normalized acceleration space back to positions.
