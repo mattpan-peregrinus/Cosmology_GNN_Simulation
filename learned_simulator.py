@@ -78,8 +78,7 @@ class LearnedSimulator(nn.Module):
 
     def _encoder_preprocessor(self, position_sequence, n_node, global_context, particle_types):
         """
-        Constructs a graph from the position sequence for GraphSAGE processing.
-        Focuses on building rich node features since GraphSAGE primarily uses node information.
+        Constructs a graph from the position sequence for processing.
     
         Args:
           position_sequence: Tensor of shape [num_particles, sequence_length, num_dimensions]
@@ -88,10 +87,7 @@ class LearnedSimulator(nn.Module):
           particle_types: Tensor of shape [num_particles] with integer types (optional).
     
         Returns:
-          A torch_geometric.data.Data object containing:
-            - x: concatenated node features
-            - edge_index: [2, num_edges] connectivity
-            - globals (optional): normalized global context
+          A torch_geometric.data.Data object containing node features, edge connectivity and attributes
         """
         # Get the most recent positions.
         most_recent_position = position_sequence[:, -1]  # [num_particles, num_dimensions]
@@ -139,6 +135,19 @@ class LearnedSimulator(nn.Module):
 
         # Concatenate all node features.
         nodes = torch.cat(node_features, dim=-1)
+        
+        
+        # Add edge features
+        edge_features = []
+        # Compute normalized relative displacements between connected particles
+        normalized_relative_displacements = (most_recent_position[senders] - most_recent_position[receivers]) / self._connectivity_radius
+        edge_features.append(normalized_relative_displacements)
+        # Compute normalized distances between connected particles
+        normalized_relative_distances = torch.norm(normalized_relative_displacements, dim=-1, keepdim=True)
+        edge_features.append(normalized_relative_distances)
+        # Concatenate edge features
+        edges = torch.cat(edge_features, dim=-1)
+        
 
         # Normalize global context if provided.
         globals_val = None
@@ -151,8 +160,9 @@ class LearnedSimulator(nn.Module):
         # Build a PyTorch Geometric Data object.
         from torch_geometric.data import Data
         edge_index = torch.stack([senders, receivers], dim=0)
-        # Note: We don't include edge_attr since GraphSAGE doesn't use it
-        data = Data(x=nodes, edge_index=edge_index)
+        data = Data(x=nodes, 
+                    edge_index=edge_index,
+                    edge_attr=edges)
         if globals_val is not None:
             data.globals = globals_val
         data.n_node = n_node
