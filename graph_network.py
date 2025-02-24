@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.data import Data
-from torch_scatter import scatter_add  
+from torch_scatter import scatter_max
 from torch_geometric.nn import SAGEConv
 
 ###########################################
@@ -75,11 +75,12 @@ class GraphSAGENetwork(nn.Module):
     """
     GraphSAGE implementation for message passing.
     Uses multiple layers of GraphSAGE convolutions with residual connections.
+    Uses max pooling aggregator. 
     """
     def __init__(self, input_size: int, hidden_size: int, output_size: int):
         super(GraphSAGENetwork, self).__init__()
-        self.sage_conv1 = SAGEConv(input_size, hidden_size)
-        self.sage_conv2 = SAGEConv(hidden_size, output_size)
+        self.sage_conv1 = SAGEConv(input_size, hidden_size, aggr='max')
+        self.sage_conv2 = SAGEConv(hidden_size, output_size, aggr='max')
         self.layer_norm = nn.LayerNorm(output_size)
         
     def forward(self, data: Data) -> Data:
@@ -110,13 +111,14 @@ class EncodeProcessDecode(nn.Module):
                  mlp_num_hidden_layers: int,
                  num_message_passing_steps: int,
                  output_size: int,
-                 reducer = scatter_add):
+                 reducer = lambda x, idx, dim_size: scatter_max(x, idx, dim=0, dim_size=dim_size)[0]):
         super(EncodeProcessDecode, self).__init__()
         self._latent_size = latent_size
         self._mlp_hidden_size = mlp_hidden_size
         self._mlp_num_hidden_layers = mlp_num_hidden_layers
         self._num_message_passing_steps = num_message_passing_steps
         self._output_size = output_size
+        self.reducer = reducer
 
         self.networks_builder()
 
