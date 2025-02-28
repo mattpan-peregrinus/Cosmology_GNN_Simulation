@@ -1,35 +1,26 @@
-# Usage:
-#     bash download_dataset.sh ${DATASET_NAME} ${OUTPUT_DIR}
-# Example:
-#     bash download_dataset.sh WaterDrop /tmp/
+#!/usr/bin/env bash
+# download_dataset.sh
+# Usage: ./download_dataset.sh WaterDropSmall ./temp/datasets
 
-set -e  # Exit immediately if a command exits with a non-zero status.
-set -x  # Print commands and their arguments as they are executed.
+DATASET_NAME="$1"
+OUTPUT_DIR="$2/$DATASET_NAME"
 
-# Check that both parameters are provided.
-if [ "$#" -ne 2 ]; then
-  echo "Usage: $0 DATASET_NAME OUTPUT_DIR"
-  exit 1
-fi
+BASE_URL="https://storage.googleapis.com/cs224w_course_project_dataset/${DATASET_NAME}"
 
-DATASET_NAME="${1}"  # The name of the dataset to download.
-OUTPUT_DIR="${2}/${DATASET_NAME}"  # Target directory to save the dataset.
+mkdir -p "$OUTPUT_DIR"
 
-# Base URL for the dataset.
-BASE_URL="https://storage.googleapis.com/learning-to-simulate-complex-physics/Datasets/${DATASET_NAME}/"
+echo "Downloading metadata.json..."
+wget -O "$OUTPUT_DIR/metadata.json" "${BASE_URL}/metadata.json"
 
-# Create the output directory if it doesn't exist.
-mkdir -p "${OUTPUT_DIR}"
-
-# List of files to download.
-FILES=(
-  "metadata.json"
-  "train.tfrecord"
-  "valid.tfrecord"
-  "test.tfrecord"
-)
-
-# Download each file from the dataset.
-for FILE in "${FILES[@]}"; do
-  wget -O "${OUTPUT_DIR}/${FILE}" "${BASE_URL}${FILE}"
+echo "Downloading data splits..."
+for split in test train valid
+do
+  for suffix in offset.json particle_type.dat position.dat
+  do
+    DATA_PATH="${OUTPUT_DIR}/${split}_${suffix}"
+    CLOUD_PATH="${BASE_URL}/${split}_${suffix}"
+    wget -O "$DATA_PATH" "$CLOUD_PATH"
+  done
 done
+
+echo "Finished downloading dataset ${DATASET_NAME} to ${OUTPUT_DIR}"
