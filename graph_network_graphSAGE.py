@@ -1,3 +1,4 @@
+'''
 import math
 import torch
 import torch.nn as nn
@@ -170,3 +171,4 @@ class EncodeProcessDecode(nn.Module):
     def _decode(self, latent_graph: Data) -> torch.Tensor:
         # Decode node latent features
         return self._decoder_network(latent_graph.x)
+'''

@@ -5,7 +5,7 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 from dataset import OneStepDataset, RolloutDataset
-from model import EncodeProcessDecode  # <-- Use the EncodeProcessDecode class
+from graph_network_graphSAGE import EncodeProcessDecode  # <-- Use the EncodeProcessDecode class
 
 def rollout(model, data, metadata, noise_std):
     device = next(model.parameters()).device
