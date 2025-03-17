@@ -1,13 +1,13 @@
 import numpy as np
 from sklearn.neighbors import KDTree
 
-def compute_connectivity(positions, radius, add_self_edges=True):
+def compute_connectivity(positions, num_neighbors, add_self_edges=True):
     """
-    Computes the connectivity for a single graph given node positions.
+    Computes the connectivity for a single graph given node positions using k-nearest neighbors.
     
     Args:
         positions (np.ndarray): Array of shape [num_nodes, num_dims] representing node positions.
-        radius (float): Maximum distance to consider two nodes connected.
+        num_neighbors (int): The number of nearest neighbors to consider for each node.
         add_self_edges (bool): Whether to include self edges (node connected to itself).
         
     Returns:
@@ -16,13 +16,12 @@ def compute_connectivity(positions, radius, add_self_edges=True):
     """
     # Build a KDTree for fast neighbor lookup.
     tree = KDTree(positions)
-    # For each node, find indices of all nodes within 'radius'.
-    neighbors_list = tree.query_radius(positions, r=radius)
+    distances, indices = tree.query(positions, k = num_neighbors)
     
     num_nodes = positions.shape[0]
-    # Repeat each node index for the number of neighbors it has.
-    senders = np.repeat(np.arange(num_nodes), [len(neighbors) for neighbors in neighbors_list])
-    receivers = np.concatenate(neighbors_list, axis=0)
+    # Each node now connects to num_neighbor nodes.
+    senders = np.repeat(np.arange(num_nodes), num_neighbors)
+    receivers = indices.flatten()
 
     if not add_self_edges:
         # Remove self edges (where sender equals receiver).
@@ -32,14 +31,14 @@ def compute_connectivity(positions, radius, add_self_edges=True):
     
     return senders, receivers
 
-def compute_connectivity_for_batch(positions, n_node, radius, add_self_edges=True):
+def compute_connectivity_for_batch(positions, n_node, num_neighbors, add_self_edges=True):
     """
-    Computes connectivity for a batch of graphs.
+    Computes connectivity for a batch of graphs using k-nearest neighbors.
     
     Args:
         positions (np.ndarray): Array of shape [total_nodes, num_dims] for all graphs in the batch.
         n_node (np.ndarray or list): 1D array of integers representing the number of nodes per graph.
-        radius (float): Maximum distance to consider two nodes connected.
+        num_neighbors (int): The number of nearest neighbors to consider for each node.
         add_self_edges (bool): Whether to include self edges.
         
     Returns:
@@ -57,7 +56,7 @@ def compute_connectivity_for_batch(positions, n_node, radius, add_self_edges=Tru
     
     # Process each graph individually.
     for pos in positions_split:
-        s, r = compute_connectivity(pos, radius, add_self_edges)
+        s, r = compute_connectivity(pos, num_neighbors, add_self_edges)
         num_edges = len(s)
         n_edge_list.append(num_edges)
         
