@@ -1,22 +1,60 @@
 import numpy as np
 from sklearn.neighbors import KDTree
 
-def compute_connectivity(positions, num_neighbors, add_self_edges=True):
+
+def extend_positions(positions, box_size):
     """
-    Computes the connectivity for a single graph given node positions using k-nearest neighbors.
+    Extend positions with periodic copies (ghost cells) for a hypercubic box.
+    
+    Args:
+        positions (np.ndarray): Array of shape [N, d] with original positions.
+        box_size (float): The length of the simulation box in each dimension.
+        
+    Returns:
+        extended_positions (np.ndarray): Array of shape [N * 3^d, d] with ghost copies.
+        mapping (np.ndarray): Array of shape [N * 3^d] mapping each ghost copy to its original index.
+    """
+    N, d = positions.shape
+    # Create shifts for each dimension: [-box_size, 0, box_size]
+    shift_values = [-box_size, 0, box_size]
+    # Create a grid of shifts. The result has shape [3, 3, ..., 3, d] which we then reshape.
+    grids = np.meshgrid(*([shift_values] * d))
+    shifts = np.stack(grids, axis=-1).reshape(-1, d)  # shape: [3^d, d]
+    
+    extended_positions = []
+    mapping = []
+    for shift in shifts:
+        extended_positions.append(positions + shift)
+        mapping.append(np.arange(N))
+    extended_positions = np.concatenate(extended_positions, axis=0)
+    mapping = np.concatenate(mapping, axis=0)
+    return extended_positions, mapping
+    
+
+def compute_connectivity(positions, num_neighbors, add_self_edges=True, box_size=None):
+    """
+    Computes the connectivity for a single graph given node positions using k-nearest neighbors, with support for periodic boundaries via extended domain.
     
     Args:
         positions (np.ndarray): Array of shape [num_nodes, num_dims] representing node positions.
         num_neighbors (int): The number of nearest neighbors to consider for each node.
         add_self_edges (bool): Whether to include self edges (node connected to itself).
+        box_size (float or None): If provided, the positions are extended periodically with this box size.
         
     Returns:
         senders (np.ndarray): 1D array of sender node indices.
         receivers (np.ndarray): 1D array of receiver node indices.
     """
-    # Build a KDTree for fast neighbor lookup.
-    tree = KDTree(positions)
-    distances, indices = tree.query(positions, k = num_neighbors)
+    if box_size is not None:
+        extended_positions, mapping = extend_positions(positions, box_size)
+        tree = KDTree(extended_positions)
+        # Query using original positions against the extended set.
+        distances, indices = tree.query(positions, k=num_neighbors)
+        # Map the indices from the extended set back to original indices.
+        neighbor_indices = mapping[indices]
+    else:
+        tree = KDTree(positions)
+        distances, indices = tree.query(positions, k = num_neighbors)
     
     num_nodes = positions.shape[0]
     # Each node now connects to num_neighbor nodes.
@@ -31,15 +69,16 @@ def compute_connectivity(positions, num_neighbors, add_self_edges=True):
     
     return senders, receivers
 
-def compute_connectivity_for_batch(positions, n_node, num_neighbors, add_self_edges=True):
+def compute_connectivity_for_batch(positions, n_node, num_neighbors, add_self_edges=True, box_size=None):
     """
-    Computes connectivity for a batch of graphs using k-nearest neighbors.
+    Computes connectivity for a batch of graphs using k-nearest neighbors with optional periodicity.
     
     Args:
         positions (np.ndarray): Array of shape [total_nodes, num_dims] for all graphs in the batch.
         n_node (np.ndarray or list): 1D array of integers representing the number of nodes per graph.
         num_neighbors (int): The number of nearest neighbors to consider for each node.
         add_self_edges (bool): Whether to include self edges.
+        box_size (float or None): If provided, uses periodic extension with this box size.
         
     Returns:
         senders (np.ndarray): 1D array of sender node indices for the batch.
@@ -56,7 +95,7 @@ def compute_connectivity_for_batch(positions, n_node, num_neighbors, add_self_ed
     
     # Process each graph individually.
     for pos in positions_split:
-        s, r = compute_connectivity(pos, num_neighbors, add_self_edges)
+        s, r = compute_connectivity(pos, num_neighbors, add_self_edges, box_size=box_size)
         num_edges = len(s)
         n_edge_list.append(num_edges)
         
