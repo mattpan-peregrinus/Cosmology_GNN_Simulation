@@ -16,16 +16,20 @@ class SequenceDataset(Dataset):
         **kwargs,
     ):
         # load simulations, assume the name of hdf5 file is *.hdf5
-        file_lists = [sorted(glob(path)) for path in paths]
+        #file_lists = [sorted(glob(path)) for path in paths]
+        file_lists = paths
         self.file_lists = file_lists
         self.nfiles = len(file_lists)
+        
+        
+        print(f"initializing with {self.nfiles} files")
 
-        if self.nfile == 0:
+        if self.nfiles == 0:
             raise FileNotFoundError("file not found for {}".format(paths))
-        self.is_read_once = np.full(self.nfile, False)
+        self.is_read_once = np.full(self.nfiles, False)
 
         # self.meta_data = []
-        # here i assume all the hdf5 files have same keys and each field inside has the same sequence length and num particles
+        # Here we assume all the hdf5 files have same keys and each field inside has the same sequence length and num particles
         with h5py.File(paths[0], "r") as f:
             self.field_names = [field_name for field_name in f.keys()]
             self.num_snapshots = f[self.field_names[0]].shape[0]
@@ -35,13 +39,27 @@ class SequenceDataset(Dataset):
         self.norms = norms
         self.augment = augment
         self.window_size = window_size
+        
+        # Assertion 1: Check if the number of snapshots is larger than the window size
         assert self.num_snapshots >= self.window_size + 1, "num_snapshots must be larger than window_size"
 
         # calculate number of samples for the whole training set, each batch is a sub-sequence with length window_size +1
         self.num_sequences = self.num_snapshots - (self.window_size + 1) + 1
-        self.num_samples = self.nfile * self.num_sequences
-        self.start_indices = list(range(self.num_sequences - self.window_size))
+        self.num_samples = self.nfiles * self.num_sequences
+        self.start_indices = list(range(self.num_sequences))
+        
+        # Assertion 2: Check that number of sequences has to be equal to number of starting indices 
         assert len(self.start_indices) == self.num_sequences, "I dont know why i add this assert"
+        
+        print(f"num_particles: {self.num_particles}")
+        print(f"num_snapshots: {self.num_snapshots}")
+        print(f"window_size: {self.window_size}")
+        print(f"num_sequences: {self.num_sequences}")
+        print(f"num_samples: {self.num_samples}")
+        print(f"start indices = {self.start_indices}")
+        print(f"start_indices length = {len(self.start_indices)}")
+    
+        
 
     def __len__(self):
         return self.num_samples
