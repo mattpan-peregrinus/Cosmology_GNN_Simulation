@@ -49,7 +49,7 @@ class SequenceDataset(Dataset):
         self.start_indices = list(range(self.num_sequences))
         
         # Assertion 2: Check that number of sequences has to be equal to number of starting indices 
-        assert len(self.start_indices) == self.num_sequences, "I dont know why i add this assert"
+        assert len(self.start_indices) == self.num_sequences, "num_sequences must be equal to number of starting indices"
         
         print(f"num_particles: {self.num_particles}")
         print(f"num_snapshots: {self.num_snapshots}")
