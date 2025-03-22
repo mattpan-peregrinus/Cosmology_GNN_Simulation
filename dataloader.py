@@ -51,6 +51,8 @@ class SequenceDataset(Dataset):
         # Assertion 2: Check that number of sequences has to be equal to number of starting indices 
         assert len(self.start_indices) == self.num_sequences, "num_sequences must be equal to number of starting indices"
         
+        # For debugging (summary of particles dataset)
+        '''
         print(f"num_particles: {self.num_particles}")
         print(f"num_snapshots: {self.num_snapshots}")
         print(f"window_size: {self.window_size}")
@@ -58,6 +60,7 @@ class SequenceDataset(Dataset):
         print(f"num_samples: {self.num_samples}")
         print(f"start indices = {self.start_indices}")
         print(f"start_indices length = {len(self.start_indices)}")
+        '''
     
         
 
