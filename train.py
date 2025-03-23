@@ -1,10 +1,13 @@
 import os
 import torch
+import json
 import numpy as np
+import torch_geometric as pyg
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
-from dataset import OneStepDataset, RolloutDataset
+from dataloader import SequenceDataset 
+from data_utils import preprocess
 from graph_network import EncodeProcessDecode  
 
 def rollout(model, data, metadata, noise_std):
@@ -44,78 +47,83 @@ def rollout(model, data, metadata, noise_std):
     return traj.permute(1, 0, 2)
 
 def train():
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path', type=str, required=True)
-    parser.add_argument('--model_path', type=str, required=True)
-    parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--epoch', type=int, default=1)
-    parser.add_argument('--noise', type=float, default=3e-4)
-    parser.add_argument('--lr', type=float, default=1e-4)
-    args = parser.parse_args()
+    batch_size = 2
+    num_epochs = 1
+    noise_std = 3e-4
+    learning_rate = 1e-4
+    model_path = "model_output"
+    os.makedirs(model_path, exist_ok=True)
+    
+    # Load metadata
+    with open('metadata.json', 'r') as f:
+        metadata = json.load(f)
+    
+    # Initialize dataset
+    dataset = SequenceDataset(
+        paths=["/Users/matthewpan/Desktop/fullrun.hdf5"],
+        window_size=5
+    )
 
-    os.makedirs(args.model_path, exist_ok=True)
-
-    # Load dataset
-    from dataset import OneStepDataset, RolloutDataset
-    train_dataset = OneStepDataset(args.data_path, "train", noise_std=args.noise)
-    valid_dataset = OneStepDataset(args.data_path, "valid", noise_std=args.noise)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=2)
-    valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=2)
-    valid_rollout_dataset = RolloutDataset(args.data_path, "valid")
-
-    metadata = train_dataset.metadata
-
-    # Build the EncodeProcessDecode model 
+    # Create data loader
+    train_loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0
+    )
+    
+    # Initialize model
     simulator = EncodeProcessDecode(
         latent_size=128,
         mlp_hidden_size=128,
         mlp_num_hidden_layers=2,
         num_message_passing_steps=10,
-        output_size=2  # e.g. 2D (x,y) acceleration or position delta
+        output_size=3  
     ).cuda()
 
-    optimizer = torch.optim.Adam(simulator.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(simulator.parameters(), lr=learning_rate)
     loss_fn = torch.nn.MSELoss()
-
+    
     # Training loop
     global_step = 0
-    for epoch in range(args.epoch):
+    for epoch in range(num_epochs):
         simulator.train()
         bar = tqdm(train_loader, desc=f"Epoch {epoch}")
         total_loss = 0.0
         count = 0
 
         for batch in bar:
-            batch = batch.to('cuda')
-            pred = simulator(batch)  # shape: [num_nodes, 2]
-            loss = loss_fn(pred, batch.y)  # batch.y should match shape [num_nodes, 2]
+            # Process each sample in the batch to create graphs
+            graphs = [preprocess(
+                particle_type=batch["input"]["ParticleType"][i] if "ParticleType" in batch["input"] else None,
+                position_seq=batch["input"]["Coordinates"][i],
+                target_position=batch["target"]["Coordinates"][i],
+                metadata=metadata,
+                noise_std=noise_std,
+                num_neighbors=16
+            ) for i in range(len(batch["input"]["Coordinates"]))]
+            
+            # Stack graphs into a batch
+            batch_graph = pyg.data.Batch.from_data_list(graphs).to('cuda')
+            
+            # Forward pass
+            pred = simulator(batch_graph)
+            loss = loss_fn(pred, batch_graph.y)
 
+            # Backward pass
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
+            
             total_loss += loss.item()
             count += 1
             bar.set_postfix({"loss": loss.item(), "avg_loss": total_loss / count})
             global_step += 1
-
-        # Evaluate on the valid set (one-step)
-        with torch.no_grad():
-            simulator.eval()
-            val_loss = 0.0
-            val_count = 0
-            for vbatch in valid_loader:
-                vbatch = vbatch.to('cuda')
-                vpred = simulator(vbatch)
-                vloss = loss_fn(vpred, vbatch.y)
-                val_loss += vloss.item()
-                val_count += 1
-            val_loss /= max(val_count, 1)
-            print(f"Epoch {epoch}: validation loss = {val_loss}")
+            
+        print(f"Epoch {epoch}: training loss = {total_loss / count}")
 
     # Save model
-    torch.save(simulator.state_dict(), os.path.join(args.model_path, "model_final.pth"))
+    torch.save(simulator.state_dict(), os.path.join(model_path, "model_final.pth"))
     print("Training complete. Model saved.")
 
 if __name__ == "__main__":
