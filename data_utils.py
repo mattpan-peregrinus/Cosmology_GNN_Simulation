@@ -18,6 +18,8 @@ def extend_positions_torch(positions, box_size):
         mapping (torch.Tensor): Tensor of shape [N * 3^d] mapping each ghost copy to its original index.
     """
     N, d = positions.size()
+    if isinstance(box_size, list):
+        box_size = float(box_size[0])
     # Create shift values for each dimension: [-box_size, 0, box_size]
     shift_values = [-box_size, 0, box_size]
     # Create all combinations using torch.cartesian_prod.
@@ -57,7 +59,9 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     # Construct the graph via k-nearest neighbors with periodicity if desired.
     if "box_size" in metadata and metadata["box_size"] is not None:
         extended_positions, mapping = extend_positions_torch(recent_position, metadata["box_size"])
-        edge_index = knn(recent_position, extended_positions, num_neighbors)
+        edge_index = knn(extended_positions, recent_position, num_neighbors)
+        edge_index = torch.stack([edge_index[1], edge_index[0]], dim=0)
+        edge_index[0] = mapping[edge_index[0]]
         edge_index[1] = mapping[edge_index[1]]
     else:
         # Non-periodic connectivity.
@@ -78,13 +82,20 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
 
     # Edge-level features
     dim = recent_position.size(-1)
-    senders = edge_index[0].unsqueeze(-1).expand(-1, dim)
-    receivers = edge_index[1].unsqueeze(-1).expand(-1, dim)
+    senders = edge_index[0]
+    receivers = edge_index[1]
+    
+    # Add checks to ensure indices are within bounds
+    assert torch.max(senders) < len(recent_position), f"Max sender index {torch.max(senders)} >= {len(recent_position)}"
+    assert torch.max(receivers) < len(recent_position), f"Max receiver index {torch.max(receivers)} >= {len(recent_position)}"
+
     edge_displacement = recent_position[senders] - recent_position[receivers]
     edge_distance = torch.norm(edge_displacement, dim=-1, keepdim=True)
 
     # Ground truth for training (acceleration)
     if target_position is not None:
+        if target_position.dim() > 1:
+            target_position = target_position[0]    # Take the first time-step 
         last_velocity = velocity_seq[:, -1]
         next_velocity = target_position + position_noise[:, -1] - recent_position
         acceleration = next_velocity - last_velocity
