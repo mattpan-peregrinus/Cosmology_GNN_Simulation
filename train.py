@@ -6,6 +6,8 @@ import torch_geometric as pyg
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
+torch.set_default_dtype(torch.float32)
+
 from dataloader import SequenceDataset 
 from data_utils import preprocess
 from graph_network import EncodeProcessDecode  
@@ -16,7 +18,7 @@ def rollout(model, data, metadata, noise_std):
     window_size = 6  
 
     total_time = data["Coordinates"].size(0)
-    traj = data["Coordinates"][:window_size].permute(1, 0, 2)
+    traj = data["Coordinates"][:window_size].permute(1, 0, 2).float()
     particle_type = None
 
     for time in range(total_time - window_size):
@@ -29,19 +31,16 @@ def rollout(model, data, metadata, noise_std):
         acceleration = model(graph).cpu()
 
         # Un-normalize acceleration
-        acc_std = torch.tensor(metadata["acc_std"])
-        acc_mean = torch.tensor(metadata["acc_mean"])
+        acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
+        acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
         acceleration = acceleration * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
 
         recent_position = traj[:, -1]
         recent_velocity = recent_position - traj[:, -2]
         new_velocity = recent_velocity + acceleration
         new_position = recent_position + new_velocity
-
-        # Append new position
         traj = torch.cat((traj, new_position.unsqueeze(1)), dim=1)
 
-    # shape: [num_particles, total_time, dim] -> transpose -> [total_time, num_particles, dim]
     return traj.permute(1, 0, 2)
 
 def train():
@@ -57,6 +56,9 @@ def train():
     # Load metadata
     with open('/Users/matthewpan/Desktop/metadata.json', 'r') as f:
         metadata = json.load(f)
+        for key in ["vel_mean", "vel_std", "acc_mean", "acc_std"]:
+            if key in metadata:
+                metadata[key] = np.array(metadata[key], dtype=np.float32)
     
     # Initialize dataset
     dataset = SequenceDataset(
@@ -81,7 +83,11 @@ def train():
         num_message_passing_steps=10,
         output_size=3  
     ).to(device)
-
+    
+    for param in simulator.parameters():
+        if param.data.dtype != torch.float32:
+            param.data = param.data.float()
+            
     optimizer = torch.optim.Adam(simulator.parameters(), lr=learning_rate)
     loss_fn = torch.nn.MSELoss()
     

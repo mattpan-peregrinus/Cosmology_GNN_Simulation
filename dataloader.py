@@ -81,11 +81,11 @@ class SequenceDataset(Dataset):
         with h5py.File(self.file_lists[ifile], "r") as f:
             for field_name in self.field_names:
                 # each field has shape (#time_steps, #particles, # dimension)
-                in_fields[field_name] = f[field_name][start_idx:end_idx]
-                tgt_fields[field_name] = f[field_name][end_idx:end_idx+1]
+                in_fields[field_name] = f[field_name][start_idx:end_idx].astype(np.float32)
+                tgt_fields[field_name] = f[field_name][end_idx:end_idx+1].astype(np.float32)
 
-        in_fields = {key:torch.from_numpy(field) for key, field in in_fields.items()}
-        tgt_fields = {key:torch.from_numpy(field) for key, field in tgt_fields.items()}
+        in_fields = {key:torch.from_numpy(field).float() for key, field in in_fields.items()}
+        tgt_fields = {key:torch.from_numpy(field).float() for key, field in tgt_fields.items()}
 
         # if self.norm is not None:
         if self.augment:
@@ -95,7 +95,6 @@ class SequenceDataset(Dataset):
                 flip_dim = 0
                 for key, field in in_fields.items():
                     if key == "Velocities":
-                        # velocity should be in opposite direction
                         field = -1 * field
                     in_fields[key] = torch.flip(field, [flip_dim])
                 # no need for target fields, since we only predict next 1 time step
