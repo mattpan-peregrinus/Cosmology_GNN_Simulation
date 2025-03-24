@@ -45,6 +45,8 @@ def rollout(model, data, metadata, noise_std):
     return traj.permute(1, 0, 2)
 
 def train():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     batch_size = 2
     num_epochs = 1
     noise_std = 3e-4
@@ -78,7 +80,7 @@ def train():
         mlp_num_hidden_layers=2,
         num_message_passing_steps=10,
         output_size=3  
-    ).cuda()
+    ).to(device)
 
     optimizer = torch.optim.Adam(simulator.parameters(), lr=learning_rate)
     loss_fn = torch.nn.MSELoss()
@@ -96,14 +98,14 @@ def train():
             graphs = [preprocess(
                 particle_type=None,
                 position_seq=batch["input"]["Coordinates"][i],
-                target_position=batch["target"]["Coordinates"][i],
+                target_position=batch["target"]["Coordinates"][i][0],
                 metadata=metadata,
                 noise_std=noise_std,
                 num_neighbors=16
             ) for i in range(len(batch["input"]["Coordinates"]))]
             
             # Stack graphs into a batch
-            batch_graph = pyg.data.Batch.from_data_list(graphs).to('cuda')
+            batch_graph = pyg.data.Batch.from_data_list(graphs).to(device)
             
             # Forward pass
             pred = simulator(batch_graph)
