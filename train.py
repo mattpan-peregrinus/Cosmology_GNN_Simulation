@@ -13,13 +13,11 @@ from graph_network import EncodeProcessDecode
 def rollout(model, data, metadata, noise_std):
     device = next(model.parameters()).device
     model.eval()
-    # We'll define a local window size (e.g., 5 frames + 1 target => 6).
     window_size = 6  
 
-    total_time = data["position"].size(0)
-    # shape: [window_size, num_particles, dim] -> transpose -> [num_particles, window_size, dim]
-    traj = data["position"][:window_size].permute(1, 0, 2)
-    particle_type = data["particle_type"]
+    total_time = data["Coordinates"].size(0)
+    traj = data["Coordinates"][:window_size].permute(1, 0, 2)
+    particle_type = None
 
     for time in range(total_time - window_size):
         # Build a graph with no noise for rollout
@@ -55,13 +53,14 @@ def train():
     os.makedirs(model_path, exist_ok=True)
     
     # Load metadata
-    with open('metadata.json', 'r') as f:
+    with open('/Users/matthewpan/Desktop/metadata.json', 'r') as f:
         metadata = json.load(f)
     
     # Initialize dataset
     dataset = SequenceDataset(
         paths=["/Users/matthewpan/Desktop/fullrun.hdf5"],
         window_size=5
+        # fields = ['Coordinates', 'Velocities', 'HydroAcceleration'] #fix SequenceDataset 
     )
 
     # Create data loader
@@ -95,7 +94,7 @@ def train():
         for batch in bar:
             # Process each sample in the batch to create graphs
             graphs = [preprocess(
-                particle_type=batch["input"]["ParticleType"][i] if "ParticleType" in batch["input"] else None,
+                particle_type=None,
                 position_seq=batch["input"]["Coordinates"][i],
                 target_position=batch["target"]["Coordinates"][i],
                 metadata=metadata,
