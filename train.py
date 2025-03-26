@@ -58,7 +58,7 @@ def train():
     dataset = SequenceDataset(
         paths=[args.dataset_path],
         window_size=args.window_size,
-        augment=args.augment
+        augment=args.augment_prob
     )
 
     # Create data loader

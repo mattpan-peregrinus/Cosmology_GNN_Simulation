@@ -29,7 +29,7 @@ def get_config():
     parser.add_argument('--num_workers', type=int, default=0, help='Number of worker processes for data loading')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--save_every', type=int, default=10, help='Save model every N epochs')
-    parser.add_argument('--augment', action='store_true', help='Whether to use data augmentation')
+    parser.add_argument('--augment_prob', type=float, default=0.1, help='Probability of applying augmentations (0.0-1.0)')
     
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
