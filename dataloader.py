@@ -13,6 +13,7 @@ class SequenceDataset(Dataset):
         window_size,
         norms=None,
         augment=False,
+        augment_prob=0.1,
         **kwargs,
     ):
         # load simulations, assume the name of hdf5 file is *.hdf5
@@ -38,6 +39,7 @@ class SequenceDataset(Dataset):
 
         self.norms = norms
         self.augment = augment
+        self.augment_prob = augment_prob
         self.window_size = window_size
         
         # Assertion 1: Check if the number of snapshots is larger than the window size
@@ -91,22 +93,28 @@ class SequenceDataset(Dataset):
         if self.augment:
             # apply time reversal symmetry
             # field shape (#n_timesteps, #n_particles, #dims)
-            if np.random.random() < 0.5:
+            if np.random.random() < self.augment_prob:
                 flip_dim = 0
-                for key, field in in_fields.items():
+                for i, (key, field) in enumerate(in_fields.items()):
                     if key == "Velocities":
                         field = -1 * field
                     in_fields[key] = torch.flip(field, [flip_dim])
                 # no need for target fields, since we only predict next 1 time step
 
             # apply random permutaion of xyz axis
-            if np.random.random() < 0.5:
+            if np.random.random() < self.augment_prob:
                 perm_idx = torch.randperm(3)
-                for key, field in in_fields.items():
-                    field = field[..., perm_idx]
-                    in_fields[key] = field
-                for key, field in tgt_fields.items():
-                    field = field[..., perm_idx]
+                for i, (key, field) in enumerate(in_fields.items()):
+                    ndim = self.ndims[i]
+                    # add dimension check, since permuation of axes only support ndim>=2
+                    if ndim >=2:
+                        field = field[..., perm_idx]
+                        in_fields[key] = field
+                for i, (key, field) in enumerate(tgt_fields.items()):
+                    ndim = self.ndims[i]
+                    if ndim >=2:
+                        field = field[..., perm_idx]
+                        tgt_fields[key] = field
 
         return {
             "input": in_fields,
