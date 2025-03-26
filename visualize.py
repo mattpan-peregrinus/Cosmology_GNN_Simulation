@@ -211,9 +211,9 @@ def create_rollout_animation(ground_truth, prediction, metadata,
 
 def main():
     parser = argparse.ArgumentParser(description='Visualize particle simulation with model predictions')
-    parser.add_argument('--dataset_path', type=str, required=True, help='Path to HDF5 file with simulation data')
-    parser.add_argument('--metadata_path', type=str, required=True, help='Path to metadata.json')
-    parser.add_argument('--model_path', type=str, required=True, help='Path to trained model')
+    parser.add_argument('--hdf5', type=str, required=True, help='Path to HDF5 file with simulation data')
+    parser.add_argument('--metadata', type=str, required=True, help='Path to metadata.json')
+    parser.add_argument('--model', type=str, required=True, help='Path to trained model')
     parser.add_argument('--output', type=str, default='model_prediction.mp4', help='Output video path')
     parser.add_argument('--initial_steps', type=int, default=10, help='Number of initial steps for prediction')
     parser.add_argument('--rollout_steps', type=int, default=50, help='Number of steps to predict')
