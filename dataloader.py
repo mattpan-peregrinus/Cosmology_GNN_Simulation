@@ -80,6 +80,9 @@ class SequenceDataset(Dataset):
 
         in_fields = {field_name:None for field_name in self.field_names}
         tgt_fields = {field_name:None for field_name in self.field_names}
+        # WARNING
+        # Assume all fields have shape (#time_steps, #particles, # dimension)
+        # For internal energy it should be (#time_steps, #particles, 1)
         with h5py.File(self.file_lists[ifile], "r") as f:
             for field_name in self.field_names:
                 # each field has shape (#time_steps, #particles, # dimension)
