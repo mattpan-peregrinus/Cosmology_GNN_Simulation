@@ -28,7 +28,6 @@ def extend_positions_torch(positions, box_size):
     extended_positions = []
     mapping = []
     for shift in shifts:
-        # Add shift to positions; shift is [d], so unsqueeze to [1, d] for broadcasting.
         extended_positions.append(positions + shift.unsqueeze(0))
         mapping.append(torch.arange(N, device=positions.device))
     extended_positions = torch.cat(extended_positions, dim=0) 
@@ -47,20 +46,28 @@ def generate_noise(position_seq, noise_std):
     position_noise = torch.cat((torch.zeros_like(position_noise, dtype = torch.float32)[:, 0:1], position_noise), dim=1)
     return position_noise
 
+
 def preprocess(particle_type, position_seq, target_position, metadata, noise_std, num_neighbors):
     """Preprocess a trajectory and construct a PyG Data object."""
     position_seq = position_seq.float()
     if target_position is not None:
         target_position = target_position.float()
+        
+    print(f"Original position_seq shape: {position_seq.shape}") # should get [2744, window_size, 3]
+    
+    position_seq = position_seq.permute(1, 0, 2)
+    print(f"Transposed position_seq shape: {position_seq.shape}")  # should be [2744, 5, 3]
     
     # Apply noise
     position_noise = generate_noise(position_seq, noise_std)
     position_seq = position_seq + position_noise
 
     # Compute velocities
-    recent_position = position_seq[:, -1]
+    recent_position = position_seq[:, -1]  # gets last time step for all particles
     velocity_seq = position_seq[:, 1:] - position_seq[:, :-1]
-
+    print(f"recent_position shape: {recent_position.shape}") # should get [2744, 3]
+    print(f"velocity_seq shape: {velocity_seq.shape}") # should get [2744, window_size-1, 3]
+ 
     # Construct the graph via k-nearest neighbors with periodicity if desired.
     if "box_size" in metadata and metadata["box_size"] is not None:
         box_size = metadata["box_size"]
@@ -85,17 +92,39 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     vel_std = torch.tensor(metadata["vel_std"], dtype=torch.float32)
     normal_velocity_seq = (velocity_seq - vel_mean) / torch.sqrt(vel_std**2 + noise_std**2)
     boundary = torch.tensor(metadata["bounds"], dtype=torch.float32)
-    distance_to_lower_boundary = recent_position - boundary[:, 0]
-    distance_to_upper_boundary = boundary[:, 1] - recent_position
+    
+    print(f"boundary shape: {boundary.shape}") # should get [3, 2]
+
+
+    if len(boundary.shape) == 2 and boundary.shape[0] == 3:
+        # Boundary has shape [3, 2] where 3 is dimensions (x,y,z) and 2 is (min, max)
+        lower_bound = boundary[:, 0]  # Shape [3]
+        upper_bound = boundary[:, 1]  # Shape [3]
+    
+        # Calculate distances with properly shaped recent_position
+        distance_to_lower_boundary = recent_position - lower_bound  # Should be [27244, 3]
+        distance_to_upper_boundary = upper_bound - recent_position  # Should be [2744, 3]
+    else:
+        print(f"Unexpected boundary shape: {boundary.shape}")
+        raise ValueError("Boundary shape is not as expected.")
+
     distance_to_boundary = torch.cat((distance_to_lower_boundary, distance_to_upper_boundary), dim=-1)
     distance_to_boundary = torch.clip(distance_to_boundary, -1.0, 1.0)
-    
+
+    print(f"distance_to_boundary shape: {distance_to_boundary.shape}") # Should be [2744, 6
+
     if particle_type is None:
-        # Use flattened velocities and boundary distances as node features
-        node_features = torch.cat((
-            normal_velocity_seq.reshape(normal_velocity_seq.size(0), -1),
-            distance_to_boundary
-        ), dim=-1)
+        # Flatten velocity sequence to create features
+        # normal_velocity_seq has shape [num_particles, window_size-1, 3]
+        flat_velocity = normal_velocity_seq.reshape(normal_velocity_seq.size(0), -1)
+        
+        # Concatenate with boundary distances
+        # flat_velocity has shape [num_particles, (window_size-1)*3]
+        # distance_to_boundary has shape [num_particles, 6]
+        print(f"flat_velocity shape: {flat_velocity.shape}")  # Should be [2744, 12]
+        node_features = torch.cat((flat_velocity, distance_to_boundary), dim=-1)
+        print(f"node_features shape: {node_features.shape}")  # Should be [2744, 18]
+    
     else:
         node_features = particle_type.float32
         
@@ -114,11 +143,28 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
 
     # Ground truth for training (acceleration)
     if target_position is not None:
-        if target_position.dim() > 1:
-            target_position = target_position[0]    # Take the first time-step 
+        print(f"Target position original shape: {target_position.shape}")
+        
+        if target_position.dim() == 3:  # [1, 2744, 3]
+            target_position = target_position.permute(1, 0, 2)  # -> [2744, 1, 3]
+            target_position = target_position.squeeze(1)  # -> [2744, 3]
+        elif target_position.dim() == 2 and target_position.shape[0] != recent_position.shape[0]:
+            target_position = target_position.reshape(-1, 3)
+        
+        print(f"Target position reshaped: {target_position.shape}")
+        print(f"Recent position shape: {recent_position.shape}")
         
         last_velocity = velocity_seq[:, -1]
-        next_velocity = target_position + position_noise[:, -1] - recent_position
+        next_velocity = target_position - recent_position
+        
+        # Apply noise correction
+        if position_noise.dim() > 2:
+            noise_term = position_noise[:, -1]
+        else:
+            noise_term = position_noise[-1]
+        
+        print(f"Noise term shape: {noise_term.shape}")
+        next_velocity = next_velocity + noise_term
         acceleration = next_velocity - last_velocity
         
         acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
