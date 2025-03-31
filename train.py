@@ -19,13 +19,17 @@ def rollout(model, data, metadata, noise_std):
     window_size = 6  
 
     total_time = data["Coordinates"].size(0)
+    # Ensure traj has shape [particles, time_steps, 3]
     traj = data["Coordinates"][:window_size].permute(1, 0, 2).float()
     particle_type = None
 
     for time in range(total_time - window_size):
         # Build a graph with no noise for rollout
         from data_utils import preprocess
-        graph = preprocess(particle_type, traj[:, -window_size:], None, metadata, 0.0)
+        # Note: preprocess now expects [time_steps, particles, 3] and will transpose internally
+        # So here we permute back to the original orientation
+        input_positions = traj[:, -window_size:].permute(1, 0, 2)
+        graph = preprocess(particle_type, input_positions, None, metadata, 0.0, num_neighbors=16)
         graph = graph.to(device)
 
         # Predict acceleration
@@ -98,15 +102,25 @@ def train():
                 batch["input"][key] = batch["input"][key].float()
             for key in batch["target"]:
                 batch["target"][key] = batch["target"][key].float()
+                
+            print(f"Batch input Coordinates shape: {batch['input']['Coordinates'].shape}")
+            print(f"Batch target Coordinates shape: {batch['target']['Coordinates'].shape}")
+            
             # Process each sample in the batch to create graphs
-            graphs = [preprocess(
-                particle_type=None,
-                position_seq=batch["input"]["Coordinates"][i],
-                target_position=batch["target"]["Coordinates"][i][0],
-                metadata=args.metadata,
-                noise_std=args.noise_std,
-                num_neighbors=args.num_neighbors
-            ) for i in range(len(batch["input"]["Coordinates"]))]
+            graphs = []
+            for i in range(len(batch["input"]["Coordinates"])):
+                input_coords = batch["input"]["Coordinates"][i]  # [5, 2744, 3]
+                target_coords = batch["target"]["Coordinates"][i]  # [1, 2744, 3]
+                
+                graph = preprocess(
+                    particle_type=None,
+                    position_seq=input_coords,
+                    target_position=target_coords,
+                    metadata=args.metadata,
+                    noise_std=args.noise_std,
+                    num_neighbors=args.num_neighbors
+                )
+                graphs.append(graph)
             
             # Stack graphs into a batch
             batch_graph = pyg.data.Batch.from_data_list(graphs).to(device)

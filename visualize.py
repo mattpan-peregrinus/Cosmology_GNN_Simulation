@@ -48,8 +48,6 @@ def predict_rollout(model, initial_positions, metadata, num_rollout_steps, devic
         # Compute velocities (inputs for the model)
         velocities = positions[:, 1:] - positions[:, :-1]
         
-        # Create a graph from the positions and velocities
-        
         # For rollout, we don't need target position
         target_position = None
         
@@ -72,7 +70,7 @@ def predict_rollout(model, initial_positions, metadata, num_rollout_steps, devic
             velocity_features = velocities.reshape(velocities.shape[0], -1)
             
             # Add dimensions to match what your model expects
-            expected_feature_size = 33  # This should match what your model expects
+            expected_feature_size = 18  # This should match what your model expects
             node_features = torch.zeros((recent_position.shape[0], expected_feature_size), 
                                         dtype=torch.float32)
             
