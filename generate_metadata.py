@@ -11,7 +11,11 @@ def generate_metadata(dataset_path, output_path):
         velocities = f['Velocities'][:]
         accelerations = f['HydroAcceleration'][:]
         coordinates = f['Coordinates'][:]
+        internal_energy = f['InternalEnergy'][:] 
 
+        temp_mean = np.mean(internal_energy, axis=(0, 1))
+        temp_std = np.std(internal_energy, axis=(0, 1))
+        
         vel_mean = np.mean(velocities, axis=(0, 1))
         vel_std = np.std(velocities, axis=(0, 1))
         
@@ -24,6 +28,8 @@ def generate_metadata(dataset_path, output_path):
         box_size = max_coords - min_coords
 
         metadata = {
+            "temp_mean": temp_mean.tolist(),
+            "temp_std": temp_std.tolist(),
             "vel_mean": vel_mean.tolist(),
             "vel_std": vel_std.tolist(),
             "acc_mean": acc_mean.tolist(),

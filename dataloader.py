@@ -80,6 +80,7 @@ class SequenceDataset(Dataset):
 
         in_fields = {field_name:None for field_name in self.field_names}
         tgt_fields = {field_name:None for field_name in self.field_names}
+        
         # WARNING
         # Assume all fields have shape (#time_steps, #particles, # dimension)
         # For internal energy it should be (#time_steps, #particles, 1)
@@ -88,6 +89,11 @@ class SequenceDataset(Dataset):
                 # each field has shape (#time_steps, #particles, # dimension)
                 in_fields[field_name] = f[field_name][start_idx:end_idx].astype(np.float32)
                 tgt_fields[field_name] = f[field_name][end_idx:end_idx+1].astype(np.float32)
+                
+                # If this is InternalEnergy and it's not already 3D, make it 3D
+                if field_name == 'InternalEnergy' and len(in_fields[field_name].shape) == 2:
+                    in_fields[field_name] = in_fields[field_name][..., np.newaxis]
+                    tgt_fields[field_name] = tgt_fields[field_name][..., np.newaxis]
 
         in_fields = {key:torch.from_numpy(field).float() for key, field in in_fields.items()}
         tgt_fields = {key:torch.from_numpy(field).float() for key, field in tgt_fields.items()}
