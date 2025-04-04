@@ -44,8 +44,8 @@ def generate_noise(position_seq, noise_std):
     return position_noise
 
 
-def preprocess(particle_type, position_seq, target_position, metadata, noise_std, num_neighbors, temperature_seq):
-    """Preprocess a trajectory and construct a PyG Data object."""
+def preprocess(particle_type, position_seq, target_position, metadata, noise_std, num_neighbors, temperature_seq, target_temperature=None):
+    """Preprocess a trajectory and construct a PyG Data object with both position and temperature target."""
     position_seq = position_seq.float()
     if target_position is not None:
         target_position = target_position.float()
@@ -62,6 +62,12 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         temperature_seq = temperature_seq.permute(1, 0, 2)
     print(f"Processed temperature_seq shape: {temperature_seq.shape}")
     
+    if target_temperature is not None:
+        target_temperature = target_temperature.float()
+        print(f"Original target_temperature shape: {target_temperature.shape}")
+        if target_temperature.dim() == 3:  # [1, num_particles, 1]
+            target_temperature = target_temperature.permute(1, 0, 2)  # -> [num_particles, 1, 1]
+            target_temperature = target_temperature.squeeze(1)  # -> [num_particles, 1]
     
     # Apply noise
     position_noise = generate_noise(position_seq, noise_std)
@@ -70,11 +76,14 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     # Compute velocities
     recent_position = position_seq[:, -1] 
     velocity_seq = position_seq[:, 1:] - position_seq[:, :-1]
-    temperature_seq = temperature_seq[:, 1:, :] 
-    
+
+    # Get recent temperature
+    recent_temperature = temperature_seq[:, -1]  # [num_particles, 1]
+    temperature_history = temperature_seq[:, 1:, :] 
+        
     print(f"recent_position shape: {recent_position.shape}") # should get [num_particles, 3]
     print(f"velocity_seq shape: {velocity_seq.shape}") # should get [num_particles, window_size-1, 3]
-    print(f"temperature_seq shape: {temperature_seq.shape}") # should get [num_particles, window_size-1, 1]
+    print(f"temperature_history shape: {temperature_history.shape}") # should get [num_particles, window_size-1, 1]
  
     # Construct the graph via k-nearest neighbors with periodicity if desired
     if "box_size" in metadata and metadata["box_size"] is not None:
@@ -152,6 +161,9 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
 
     edge_displacement = recent_position[senders] - recent_position[receivers]
     edge_distance = torch.norm(edge_displacement, dim=-1, keepdim=True)
+    
+    acceleration = None
+    temperature_change = None
 
     # Ground truth for training (acceleration)
     if target_position is not None:
@@ -182,8 +194,20 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
         acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
         acceleration = (acceleration - acc_mean) / torch.sqrt(acc_std**2 + noise_std**2)
-    else:
-        acceleration = None
+    
+    if target_temperature is not None:
+        if target_temperature.dim() == 3:
+            target_temperature = target_temperature.squeeze(1)
+        
+        print(f"Target temperature reshaped: {target_temperature.shape}")
+        print(f"Recent temperature shape: {recent_temperature.shape}")
+        
+        temperature_change = target_temperature - recent_temperature
+        
+        if "temp_mean" in metadata and "temp_std" in metadata:
+            temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
+            temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
+            temperature_change = (temperature_change - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
 
     # Build a PyG Data object
     from torch_geometric.data import Data

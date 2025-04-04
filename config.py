@@ -30,6 +30,8 @@ def get_config():
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--save_every', type=int, default=10, help='Save model every N epochs')
     parser.add_argument('--augment_prob', type=float, default=0.1, help='Probability of applying augmentations (0.0-1.0)')
+    parser.add_argument('--temp_loss_weight', type=float, default=1.0, help='Weight for temperature loss in combined loss')
+    parser.add_argument('--acc_loss_weight', type=float, default=1.0, help='Weight for acceleration loss in combined loss')
     
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)

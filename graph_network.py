@@ -147,12 +147,21 @@ class EncodeProcessDecode(nn.Module):
             for _ in range(num_message_passing_steps)
         ])
 
-        self.decoder = build_mlp(mlp_hidden_size, mlp_num_hidden_layers, output_size)
+        # Separate decoders for acceleration and temperature. 
+        self.decoder_acc = build_mlp(mlp_hidden_size, mlp_num_hidden_layers, output_size)
+        self.decoder_temp = build_mlp(mlp_hidden_size, mlp_num_hidden_layers, output_size)
 
     def forward(self, input_graph: Data) -> torch.Tensor:
         latent_graph_0 = self._encode(input_graph)
         latent_graph_m = self._process(latent_graph_0)
-        return self._decode(latent_graph_m)
+        
+        acc_pred = self.decoder_acc(latent_graph_m.x)
+        temp_pred = self.decoder_temp(latent_graph_m.x)
+        
+        return {
+            'acceleration': acc_pred,
+            'temperature': temp_pred
+        }
 
     def _encode(self, input_graph: Data) -> Data:
         # If globals exist, broadcast them to every node.

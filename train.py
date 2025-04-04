@@ -129,12 +129,18 @@ def train():
             batch_graph = pyg.data.Batch.from_data_list(graphs).to(device)
             
             # Forward pass
-            pred = simulator(batch_graph)
-            loss = loss_fn(pred, batch_graph.y)
+            predictions = simulator(batch_graph)
+            acc_pred = predictions['acceleration']
+            temp_pred = predictions['temperature']
+            
+            acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
+            temp_loss = loss_fn(temp_pred, batch_graph.y_temp)
+            
+            combined_loss = args.acc_loss_weight * acc_loss + args.temp_loss_weight * temp_loss
 
             # Backward pass
             optimizer.zero_grad()
-            loss.backward()
+            combined_loss.backward()
             optimizer.step()
             
             total_loss += loss.item()
