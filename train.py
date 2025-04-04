@@ -143,9 +143,9 @@ def train():
             combined_loss.backward()
             optimizer.step()
             
-            total_loss += loss.item()
+            total_loss += combined_loss.item()
             count += 1
-            bar.set_postfix({"loss": loss.item(), "avg_loss": total_loss / count})
+            bar.set_postfix({"loss": combined_loss.item(), "avg_loss": total_loss / count})
             global_step += 1
             
         print(f"Epoch {epoch}: training loss = {total_loss / count}")
