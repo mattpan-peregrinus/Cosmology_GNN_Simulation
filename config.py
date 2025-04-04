@@ -12,7 +12,7 @@ def get_config():
     parser.add_argument('--output_dir', type=str, default='model_output', help='Path to output directory')
     
     parser.add_argument('--num_neighbors', type=int, default=16, help='Number of nearest neighbors to consider for each node')
-    parser.add_argument('--batch_size', type=int, default=2, help='Batch size for training')
+    parser.add_argument('--batch_size', type=int, default=1, help='Batch size for training')
     
     # Training / hardware args 
     parser.add_argument('--window_size', type=int, default=5, help='Number of time steps to use for input sequence')

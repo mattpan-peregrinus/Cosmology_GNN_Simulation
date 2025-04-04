@@ -47,7 +47,7 @@ def generate_noise(position_seq, noise_std):
     return position_noise
 
 
-def preprocess(particle_type, position_seq, target_position, metadata, noise_std, num_neighbors):
+def preprocess(particle_type, position_seq, target_position, metadata, noise_std, num_neighbors, temperature_seq):
     """Preprocess a trajectory and construct a PyG Data object."""
     position_seq = position_seq.float()
     if target_position is not None:
@@ -58,6 +58,15 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     position_seq = position_seq.permute(1, 0, 2)
     print(f"Transposed position_seq shape: {position_seq.shape}")  # should be [2744, 5, 3]
     
+    temperature_seq = temperature_seq.float()
+    print(f"Original temperature_seq shape: {temperature_seq.shape}")
+    
+    if temperature_seq.shape[0] == position_seq.shape[1] and temperature_seq.shape[1] == position_seq.shape[0]:
+        temperature_seq = temperature_seq.permute(1, 0, 2)
+    print(f"Processed temperature_seq shape: {temperature_seq.shape}")
+    
+    
+    
     # Apply noise
     position_noise = generate_noise(position_seq, noise_std)
     position_seq = position_seq + position_noise
@@ -65,8 +74,11 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     # Compute velocities
     recent_position = position_seq[:, -1]  # gets last time step for all particles
     velocity_seq = position_seq[:, 1:] - position_seq[:, :-1]
+    temperature_seq = temperature_seq[:, 1:, :] 
+    
     print(f"recent_position shape: {recent_position.shape}") # should get [2744, 3]
     print(f"velocity_seq shape: {velocity_seq.shape}") # should get [2744, window_size-1, 3]
+    print(f"temperature_seq shape: {temperature_seq.shape}") # should get [2744, 4, 1]
  
     # Construct the graph via k-nearest neighbors with periodicity if desired.
     if "box_size" in metadata and metadata["box_size"] is not None:
@@ -98,12 +110,12 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
 
     if len(boundary.shape) == 2 and boundary.shape[0] == 3:
         # Boundary has shape [3, 2] where 3 is dimensions (x,y,z) and 2 is (min, max)
-        lower_bound = boundary[:, 0]  # Shape [3]
-        upper_bound = boundary[:, 1]  # Shape [3]
+        lower_bound = boundary[:, 0]  # shape [3]
+        upper_bound = boundary[:, 1]  # shape [3]
     
         # Calculate distances with properly shaped recent_position
-        distance_to_lower_boundary = recent_position - lower_bound  # Should be [27244, 3]
-        distance_to_upper_boundary = upper_bound - recent_position  # Should be [2744, 3]
+        distance_to_lower_boundary = recent_position - lower_bound  # should be [2744, 3]
+        distance_to_upper_boundary = upper_bound - recent_position  # should be [2744, 3]
     else:
         print(f"Unexpected boundary shape: {boundary.shape}")
         raise ValueError("Boundary shape is not as expected.")
@@ -111,19 +123,31 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     distance_to_boundary = torch.cat((distance_to_lower_boundary, distance_to_upper_boundary), dim=-1)
     distance_to_boundary = torch.clip(distance_to_boundary, -1.0, 1.0)
 
-    print(f"distance_to_boundary shape: {distance_to_boundary.shape}") # Should be [2744, 6
+    print(f"distance_to_boundary shape: {distance_to_boundary.shape}") # should be [2744, 6
 
     if particle_type is None:
         # Flatten velocity sequence to create features
         # normal_velocity_seq has shape [num_particles, window_size-1, 3]
         flat_velocity = normal_velocity_seq.reshape(normal_velocity_seq.size(0), -1)
         
+        if "temp_mean" in metadata and "temp_std" in metadata:
+            temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
+            temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
+            normal_temp_seq = (temperature_seq - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
+        else:
+            print("Temperature metadata not found. Using raw temperature.")
+            normal_temp_seq = temperature_seq
+        
+        flat_temperature = normal_temp_seq.reshape(normal_temp_seq.size(0), -1)
+        print(f"flat_temperature shape: {flat_temperature.shape}")
+        
+        node_features = torch.cat((flat_velocity, flat_temperature, distance_to_boundary), dim=-1)
+        
         # Concatenate with boundary distances
         # flat_velocity has shape [num_particles, (window_size-1)*3]
         # distance_to_boundary has shape [num_particles, 6]
-        print(f"flat_velocity shape: {flat_velocity.shape}")  # Should be [2744, 12]
-        node_features = torch.cat((flat_velocity, distance_to_boundary), dim=-1)
-        print(f"node_features shape: {node_features.shape}")  # Should be [2744, 18]
+        print(f"flat_velocity shape: {flat_velocity.shape}")  # should be [2744, 12]
+        print(f"node_features shape: {node_features.shape}")  # should be [2744, 18]
     
     else:
         node_features = particle_type.float32
@@ -180,6 +204,6 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         edge_index=edge_index,
         edge_attr=torch.cat((edge_displacement, edge_distance), dim=-1),
         y=acceleration.float() if acceleration is not None else None,
-        pos=torch.cat((velocity_seq.reshape(velocity_seq.size(0), -1), distance_to_boundary), dim=-1)
+        pos=node_features
     )
     return graph

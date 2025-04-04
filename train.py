@@ -106,11 +106,16 @@ def train():
             print(f"Batch input Coordinates shape: {batch['input']['Coordinates'].shape}")
             print(f"Batch target Coordinates shape: {batch['target']['Coordinates'].shape}")
             
+            if "InternalEnergy" not in batch["input"]:
+                raise ValueError("InternalEnergy is required in the dataset")
+            print(f"Batch input InternalEnergy shape: {batch['input']['InternalEnergy'].shape}")
+            
             # Process each sample in the batch to create graphs
             graphs = []
             for i in range(len(batch["input"]["Coordinates"])):
                 input_coords = batch["input"]["Coordinates"][i]  # [5, 2744, 3]
                 target_coords = batch["target"]["Coordinates"][i]  # [1, 2744, 3]
+                temperature_seq = batch["input"]["InternalEnergy"][i]  # [5, 2744, 1]
                 
                 graph = preprocess(
                     particle_type=None,
@@ -118,7 +123,8 @@ def train():
                     target_position=target_coords,
                     metadata=args.metadata,
                     noise_std=args.noise_std,
-                    num_neighbors=args.num_neighbors
+                    num_neighbors=args.num_neighbors,
+                    temperature_seq=temperature_seq
                 )
                 graphs.append(graph)
             
