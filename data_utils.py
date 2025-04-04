@@ -215,7 +215,8 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         x=node_features.float(),
         edge_index=edge_index,
         edge_attr=torch.cat((edge_displacement, edge_distance), dim=-1),
-        y=acceleration.float() if acceleration is not None else None,
+        y_acc=acceleration.float() if acceleration is not None else None,
+        y_temp=temperature_change.float() if temperature_change is not None else None,
         pos=recent_position
     )
     return graph
