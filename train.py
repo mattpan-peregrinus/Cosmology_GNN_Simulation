@@ -121,7 +121,8 @@ def train():
                     metadata=args.metadata,
                     noise_std=args.noise_std,
                     num_neighbors=args.num_neighbors,
-                    temperature_seq=temperature_seq
+                    temperature_seq=temperature_seq,
+                    target_temperature=batch["target"]["InternalEnergy"][i],
                 )
                 graphs.append(graph)
             

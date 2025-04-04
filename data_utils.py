@@ -79,7 +79,7 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
 
     # Get recent temperature
     recent_temperature = temperature_seq[:, -1]  # [num_particles, 1]
-    temperature_history = temperature_seq[:, 1:, :] 
+    temperature_history = temperature_seq[:, :-1]  
         
     print(f"recent_position shape: {recent_position.shape}") # should get [num_particles, 3]
     print(f"velocity_seq shape: {velocity_seq.shape}") # should get [num_particles, window_size-1, 3]
@@ -133,10 +133,10 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         if "temp_mean" in metadata and "temp_std" in metadata:
             temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
             temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
-            normal_temp_seq = (temperature_seq - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
+            normal_temp_seq = (temperature_history - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
         else:
             print("Temperature metadata not found. Using raw temperature.")
-            normal_temp_seq = temperature_seq
+            normal_temp_seq = temperature_history
         
         flat_temperature = normal_temp_seq.reshape(normal_temp_seq.size(0), -1)
         print(f"flat_temperature shape: {flat_temperature.shape}")
