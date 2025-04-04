@@ -19,15 +19,12 @@ def rollout(model, data, metadata, noise_std):
     window_size = 6  
 
     total_time = data["Coordinates"].size(0)
-    # Ensure traj has shape [particles, time_steps, 3]
     traj = data["Coordinates"][:window_size].permute(1, 0, 2).float()
     particle_type = None
 
     for time in range(total_time - window_size):
         # Build a graph with no noise for rollout
         from data_utils import preprocess
-        # Note: preprocess now expects [time_steps, particles, 3] and will transpose internally
-        # So here we permute back to the original orientation
         input_positions = traj[:, -window_size:].permute(1, 0, 2)
         graph = preprocess(particle_type, input_positions, None, metadata, 0.0, num_neighbors=16)
         graph = graph.to(device)
@@ -113,9 +110,9 @@ def train():
             # Process each sample in the batch to create graphs
             graphs = []
             for i in range(len(batch["input"]["Coordinates"])):
-                input_coords = batch["input"]["Coordinates"][i]  # [5, 2744, 3]
-                target_coords = batch["target"]["Coordinates"][i]  # [1, 2744, 3]
-                temperature_seq = batch["input"]["InternalEnergy"][i]  # [5, 2744, 1]
+                input_coords = batch["input"]["Coordinates"][i] 
+                target_coords = batch["target"]["Coordinates"][i] 
+                temperature_seq = batch["input"]["InternalEnergy"][i]  
                 
                 graph = preprocess(
                     particle_type=None,
