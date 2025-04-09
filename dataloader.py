@@ -112,12 +112,12 @@ class SequenceDataset(Dataset):
                 for i, (key, field) in enumerate(in_fields.items()):
                     ndim = self.ndims[i]
                     # Add dimension check, since permuation of axes only support ndim>=2
-                    if ndim >=2:
+                    if ndim >=2 and field.shape[-1] == 3:
                         field = field[..., perm_idx]
                         in_fields[key] = field
                 for i, (key, field) in enumerate(tgt_fields.items()):
                     ndim = self.ndims[i]
-                    if ndim >=2:
+                    if ndim >=2 and field.shape[-1] == 3:
                         field = field[..., perm_idx]
                         tgt_fields[key] = field
 
