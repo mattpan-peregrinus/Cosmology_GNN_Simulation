@@ -50,21 +50,21 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     if target_position is not None:
         target_position = target_position.float()
         
-    print(f"Original position_seq shape: {position_seq.shape}") # should get [window_size, num_particles, 3]
+    #print(f"Original position_seq shape: {position_seq.shape}") # should get [window_size, num_particles, 3]
     
     position_seq = position_seq.permute(1, 0, 2)
-    print(f"Transposed position_seq shape: {position_seq.shape}")  # should be [num_particles, window_size, 3]
+    #print(f"Transposed position_seq shape: {position_seq.shape}")  # should be [num_particles, window_size, 3]
     
     temperature_seq = temperature_seq.float()
-    print(f"Original temperature_seq shape: {temperature_seq.shape}")
+    #print(f"Original temperature_seq shape: {temperature_seq.shape}")
     
     if temperature_seq.shape[0] == position_seq.shape[1] and temperature_seq.shape[1] == position_seq.shape[0]:
         temperature_seq = temperature_seq.permute(1, 0, 2)
-    print(f"Processed temperature_seq shape: {temperature_seq.shape}")
+    #print(f"Processed temperature_seq shape: {temperature_seq.shape}")
     
     if target_temperature is not None:
         target_temperature = target_temperature.float()
-        print(f"Original target_temperature shape: {target_temperature.shape}")
+        #print(f"Original target_temperature shape: {target_temperature.shape}")
         if target_temperature.dim() == 3:  # [1, num_particles, 1]
             target_temperature = target_temperature.permute(1, 0, 2)  # -> [num_particles, 1, 1]
             target_temperature = target_temperature.squeeze(1)  # -> [num_particles, 1]
@@ -81,9 +81,9 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     recent_temperature = temperature_seq[:, -1]  # [num_particles, 1]
     temperature_history = temperature_seq[:, :-1]  
         
-    print(f"recent_position shape: {recent_position.shape}") # should get [num_particles, 3]
-    print(f"velocity_seq shape: {velocity_seq.shape}") # should get [num_particles, window_size-1, 3]
-    print(f"temperature_history shape: {temperature_history.shape}") # should get [num_particles, window_size-1, 1]
+    #print(f"recent_position shape: {recent_position.shape}") # should get [num_particles, 3]
+    #print(f"velocity_seq shape: {velocity_seq.shape}") # should get [num_particles, window_size-1, 3]
+    #print(f"temperature_history shape: {temperature_history.shape}") # should get [num_particles, window_size-1, 1]
  
     # Construct the graph via k-nearest neighbors with periodicity if desired
     if "box_size" in metadata and metadata["box_size"] is not None:
@@ -110,7 +110,7 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     normal_velocity_seq = (velocity_seq - vel_mean) / torch.sqrt(vel_std**2 + noise_std**2)
     boundary = torch.tensor(metadata["bounds"], dtype=torch.float32)
     
-    print(f"boundary shape: {boundary.shape}") # should get [3, 2]
+    #print(f"boundary shape: {boundary.shape}") # should get [3, 2]
 
     # Normalize positions to be between [0, 1] within the simulation box
     if len(boundary.shape) == 2 and boundary.shape[0] == 3:
@@ -139,13 +139,13 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
             normal_temp_seq = temperature_history
         
         flat_temperature = normal_temp_seq.reshape(normal_temp_seq.size(0), -1)
-        print(f"flat_temperature shape: {flat_temperature.shape}")
+        #print(f"flat_temperature shape: {flat_temperature.shape}")
         
         node_features = torch.cat((flat_velocity, flat_temperature, normalized_position), dim=-1)
         
-        print(f"flat_velocity shape: {flat_velocity.shape}")  # should be [num_particles, (window_size-1)*3]
-        print(f"normalized_position shape: {normalized_position.shape}")  # should be [num_particles, 3]
-        print(f"node_features shape: {node_features.shape}")  # should be [num_particles, (window_size-1)*3 + (window_size-1)*1 + 3]
+        #print(f"flat_velocity shape: {flat_velocity.shape}")  # should be [num_particles, (window_size-1)*3]
+        #print(f"normalized_position shape: {normalized_position.shape}")  # should be [num_particles, 3]
+        #print(f"node_features shape: {node_features.shape}")  # should be [num_particles, (window_size-1)*3 + (window_size-1)*1 + 3]
     
     else:
         node_features = particle_type.float32
@@ -167,7 +167,7 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
 
     # Ground truth for training (acceleration)
     if target_position is not None:
-        print(f"Target position original shape: {target_position.shape}")
+        #print(f"Target position original shape: {target_position.shape}")
         
         if target_position.dim() == 3:  # [1, num_particles, 3]
             target_position = target_position.permute(1, 0, 2)  # -> [num_particles, 1, 3]
@@ -175,8 +175,8 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         elif target_position.dim() == 2 and target_position.shape[0] != recent_position.shape[0]:
             target_position = target_position.reshape(-1, 3)
         
-        print(f"Target position reshaped: {target_position.shape}")
-        print(f"Recent position shape: {recent_position.shape}")
+        #print(f"Target position reshaped: {target_position.shape}")
+        #print(f"Recent position shape: {recent_position.shape}")
         
         last_velocity = velocity_seq[:, -1]
         next_velocity = target_position - recent_position
@@ -187,7 +187,7 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         else:
             noise_term = position_noise[-1]
         
-        print(f"Noise term shape: {noise_term.shape}")
+        #print(f"Noise term shape: {noise_term.shape}")
         next_velocity = next_velocity + noise_term
         acceleration = next_velocity - last_velocity
         
@@ -199,8 +199,8 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         if target_temperature.dim() == 3:
             target_temperature = target_temperature.squeeze(1)
         
-        print(f"Target temperature reshaped: {target_temperature.shape}")
-        print(f"Recent temperature shape: {recent_temperature.shape}")
+        #print(f"Target temperature reshaped: {target_temperature.shape}")
+        #print(f"Recent temperature shape: {recent_temperature.shape}")
         
         temperature_change = target_temperature - recent_temperature
         
