@@ -100,12 +100,12 @@ def train():
             for key in batch["target"]:
                 batch["target"][key] = batch["target"][key].float()
                 
-            print(f"Batch input Coordinates shape: {batch['input']['Coordinates'].shape}")
-            print(f"Batch target Coordinates shape: {batch['target']['Coordinates'].shape}")
+            #print(f"Batch input Coordinates shape: {batch['input']['Coordinates'].shape}")
+            #print(f"Batch target Coordinates shape: {batch['target']['Coordinates'].shape}")
             
             if "InternalEnergy" not in batch["input"]:
                 raise ValueError("InternalEnergy is required in the dataset")
-            print(f"Batch input InternalEnergy shape: {batch['input']['InternalEnergy'].shape}")
+            #print(f"Batch input InternalEnergy shape: {batch['input']['InternalEnergy'].shape}")
             
             # Process each sample in the batch to create graphs
             graphs = []
