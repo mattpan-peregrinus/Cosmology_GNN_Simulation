@@ -33,6 +33,11 @@ def get_config():
     parser.add_argument('--temp_loss_weight', type=float, default=1.0, help='Weight for temperature loss in combined loss')
     parser.add_argument('--acc_loss_weight', type=float, default=1.0, help='Weight for acceleration loss in combined loss')
     
+    
+    parser.add_argument('--val_split', type=float, default=0.2, help='Fraction of data to use for validation')
+    parser.add_argument('--patience', type=int, default=5, help='Number of epochs without improvement to wait before early stopping')
+    parser.add_argument('--plots_dir', type=str, default='plots', help='Subdirectory for saving plots')
+    
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
     

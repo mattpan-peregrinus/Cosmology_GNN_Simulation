@@ -14,6 +14,7 @@ class SequenceDataset(Dataset):
         norms=None,
         augment=False,
         augment_prob=0.1,
+        start_indices=None,
         **kwargs,
     ):
 
@@ -41,11 +42,18 @@ class SequenceDataset(Dataset):
         
         # Assertion 1: Check if the number of snapshots is larger than the window size
         assert self.num_snapshots >= self.window_size + 1, "num_snapshots must be larger than window_size"
-
-        # Calculate number of samples for the whole training set, each batch is a sub-sequence with length window_size +1
-        self.num_sequences = self.num_snapshots - (self.window_size + 1) + 1
+        
+        total_possible_sequences = self.num_snapshots - (self.window_size + 1) + 1
+        if start_indices is not None:
+            self.start_indices = start_indices
+            self.num_sequences = len(self.start_indices)
+            max_index = max(self.start_indices) if self.start_indices else 0
+            assert max_index < total_possible_sequences, f"Invalid start index: {max_index} >= {total_possible_sequences}"
+        else:
+            self.start_indices = list(range(total_possible_sequences))
+            self.num_sequences = total_possible_sequences
+            
         self.num_samples = self.nfiles * self.num_sequences
-        self.start_indices = list(range(self.num_sequences))
         
         # Assertion 2: Check that number of sequences has to be equal to number of starting indices 
         assert len(self.start_indices) == self.num_sequences, "num_sequences must be equal to number of starting indices"
