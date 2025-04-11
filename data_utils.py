@@ -62,12 +62,6 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         temperature_seq = temperature_seq.permute(1, 0, 2)
     #print(f"Processed temperature_seq shape: {temperature_seq.shape}")
     
-    if target_temperature is not None:
-        target_temperature = target_temperature.float()
-        #print(f"Original target_temperature shape: {target_temperature.shape}")
-        if target_temperature.dim() == 3:  # [1, num_particles, 1]
-            target_temperature = target_temperature.permute(1, 0, 2)  # -> [num_particles, 1, 1]
-            target_temperature = target_temperature.squeeze(1)  # -> [num_particles, 1]
     
     # Apply noise
     position_noise = generate_noise(position_seq, noise_std)
@@ -80,6 +74,20 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     # Get recent temperature
     recent_temperature = temperature_seq[:, -1]  # [num_particles, 1]
     temperature_history = temperature_seq[:, :-1]  
+    
+    if target_temperature is not None:
+        target_temperature = target_temperature.float()
+        #print(f"Original target_temperature shape: {target_temperature.shape}")
+        if target_temperature.dim() == 3:  # [1, num_particles, 1]
+            target_temperature = target_temperature.permute(1, 0, 2)  # -> [num_particles, 1, 1]
+            target_temperature = target_temperature.squeeze(1)  # -> [num_particles, 1]
+        elif target_temperature.dim() == 2 and target_temperature.shape[1] != 1:
+            target_temperature = target_temperature.reshape(-1, 1)
+        
+        if target_temperature.shape != recent_temperature.shape:
+            print(f"Shape mismatch: target_temp {target_temperature.shape} vs recent_temp {recent_temperature.shape}")
+            if target_temperature.numel() == recent_temperature.numel():
+                target_temperature = target_temperature.reshape(recent_temperature.shape)
         
     #print(f"recent_position shape: {recent_position.shape}") # should get [num_particles, 3]
     #print(f"velocity_seq shape: {velocity_seq.shape}") # should get [num_particles, window_size-1, 3]
