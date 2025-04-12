@@ -3,7 +3,7 @@ import torch_geometric as pyg
 from data_utils import preprocess
 
 def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weight, metadata, noise_std, num_neighbors):
-    model.eval()  # Set the model to evaluation mode
+    model.eval()  
     total_loss = 0.0
     acc_loss_total = 0.0
     temp_loss_total = 0.0
@@ -29,7 +29,8 @@ def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weig
                     metadata=metadata,
                     noise_std=noise_std,
                     num_neighbors=num_neighbors,
-                    temperature_seq=temperature_seq
+                    temperature_seq=temperature_seq,
+                    target_temperature=batch["target"]["InternalEnergy"][i]
                 )
                 graphs.append(graph)
             

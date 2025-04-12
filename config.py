@@ -35,7 +35,7 @@ def get_config():
     
     
     parser.add_argument('--val_split', type=float, default=0.2, help='Fraction of data to use for validation')
-    parser.add_argument('--patience', type=int, default=5, help='Number of epochs without improvement to wait before early stopping')
+    parser.add_argument('--patience', type=int, default=10, help='Number of epochs without improvement to wait before early stopping')
     parser.add_argument('--plots_dir', type=str, default='plots', help='Subdirectory for saving plots')
     
     args = parser.parse_args()
