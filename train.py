@@ -48,6 +48,14 @@ def rollout(model, data, metadata, noise_std):
 
     return traj.permute(1, 0, 2)
 
+def load_pretrained_model(model, model_path):
+    try:
+        model.load_state_dict(torch.load(model_path))
+        print(f"Successfully loaded pretrained model from {model_path}")
+    except Exception as e:
+        print(f"Error loading pretrained model: {e}")
+    return model
+
 def train():
     args = get_config()
     device = torch.device(args.device)
@@ -99,6 +107,11 @@ def train():
     for param in simulator.parameters():
         if param.data.dtype != torch.float32:
             param.data = param.data.float()
+    
+    # Load pretrained model if provided
+    if args.pretrained_model:
+        simulator = load_pretrained_model(simulator, args.pretrained_model)
+        print(f"Starting training from pretrained model: {args.pretrained_model}")
             
     optimizer = torch.optim.Adam(simulator.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     loss_fn = torch.nn.MSELoss()
@@ -112,8 +125,6 @@ def train():
     
     best_val_loss = float('inf')
     best_epoch = -1
-    patience = 5
-    patience_counter = 0
     
     # Training loop
     global_step = 0
@@ -228,17 +239,12 @@ def train():
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_epoch = epoch
-            patience_counter = 0
             
             # Save best model
             best_model_path = os.path.join(args.output_dir, "model_best.pth")
             torch.save(simulator.state_dict(), best_model_path)
             print(f"New best model saved with validation loss: {val_loss:.6f}")
-        else:
-            patience_counter += 1
-            print(f"Validation loss did not improve for {patience_counter} epochs. "
-                  f"Best: {best_val_loss:.6f} at epoch {best_epoch}")
-        
+
         plot_losses(
             train_losses, 
             val_losses, 
@@ -251,10 +257,6 @@ def train():
             checkpoint_path = os.path.join(args.output_dir, f"model_epoch_{epoch}.pth")
             torch.save(simulator.state_dict(), checkpoint_path)
             print(f"Model saved to {checkpoint_path}")
-        
-        if patience_counter >= patience:
-            print(f"Early stopping triggered after {patience} epochs without improvement")
-            break
         
     plot_losses(
         train_losses, 
