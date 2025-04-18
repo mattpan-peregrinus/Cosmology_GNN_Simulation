@@ -21,7 +21,7 @@ def get_config():
     parser.add_argument('--mlp_num_hidden_layers', type=int, default=2, help='Number of hidden layers in MLPs')
     parser.add_argument('--num_message_passing_steps', type=int, default=10, help='Number of message passing steps in processor')
     parser.add_argument('--output_size', type=int, default=3, help='Output dimension (typically 3 for 3D acceleration)')
-    parser.add_argument('--noise_std', type=float, default=3e-4, help='Standard deviation of noise added to positions')
+    parser.add_argument('--noise_std', type=float, default=0.0, help='Standard deviation of noise added to positions')
     parser.add_argument('--num_epochs', type=int, default=10, help='Number of epochs to train')
     parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate for optimizer')
     parser.add_argument('--weight_decay', type=float, default=0, help='Weight decay for optimizer')
@@ -29,7 +29,7 @@ def get_config():
     parser.add_argument('--num_workers', type=int, default=0, help='Number of worker processes for data loading')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--save_every', type=int, default=10, help='Save model every N epochs')
-    parser.add_argument('--augment_prob', type=float, default=0.1, help='Probability of applying augmentations (0.0-1.0)')
+    parser.add_argument('--augment_prob', type=float, default=0.0, help='Probability of applying augmentations (0.0-1.0)')
     parser.add_argument('--temp_loss_weight', type=float, default=1.0, help='Weight for temperature loss in combined loss')
     parser.add_argument('--acc_loss_weight', type=float, default=1.0, help='Weight for acceleration loss in combined loss')
     

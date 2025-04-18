@@ -222,7 +222,7 @@ def train():
         component_losses['acceleration']['train'].append(avg_acc_train_loss)
         component_losses['temperature']['train'].append(avg_temp_train_loss)
         
-        val_loss, val_component_losses = validate(simulator, val_loader, device, loss_fn, args.acc_loss_weight, args.temp_loss_weight, args.metadata, args.noise_std, args.num_neighbors)
+        val_loss, val_component_losses = validate(simulator, val_loader, device, loss_fn, args.acc_loss_weight, args.temp_loss_weight, args.metadata, 0, args.num_neighbors)
         
         val_losses.append(val_loss)
         component_losses['acceleration']['val'].append(val_component_losses['acceleration'])
