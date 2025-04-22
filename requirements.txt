@@ -13,6 +13,3 @@ torch-geometric>=2.0.4
 
 # For graph connectivity (uses scikit-learn's KDTree).
 scikit-learn>=0.24.1
-
-# For visualization.
-matplotlib>=3.3.4
