@@ -5,6 +5,7 @@ import numpy as np
 import torch_geometric as pyg
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 torch.set_default_dtype(torch.float32)
 
@@ -14,7 +15,139 @@ from data_utils import preprocess
 from graph_network import EncodeProcessDecode  
 from validation_utils import get_train_val_datasets
 from validation import validate
-from visualization import plot_losses
+
+def plot_losses(train_losses, val_losses, output_path, component_losses=None):
+    # Create figure with subplots
+    if component_losses:
+        fig = plt.figure(figsize=(15, 10))
+        gs = plt.GridSpec(2, 2, figure=fig)
+        
+        # Plot 1: Combined training and validation loss (top span)
+        ax1 = fig.add_subplot(gs[0, :])
+        
+        # Plot 2-3: Component losses (bottom row)
+        ax2 = fig.add_subplot(gs[1, 0])
+        ax3 = fig.add_subplot(gs[1, 1])
+    else:
+        # Just create a single plot
+        fig, ax1 = plt.subplots(figsize=(10, 6))
+    
+    epochs = range(1, len(train_losses) + 1)
+    ax1.plot(epochs, train_losses, 'b-', linewidth=2, label='Training Loss')
+    ax1.plot(epochs, val_losses, 'r-', linewidth=2, label='Validation Loss')
+    ax1.set_title('Training and Validation Loss per Epoch', fontsize=16)
+    ax1.set_xlabel('Epoch', fontsize=14)
+    ax1.set_ylabel('Loss', fontsize=14)
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    ax1.legend(fontsize=12)
+    
+    # Plot component losses if provided
+    if component_losses:
+        # Acceleration loss
+        ax2.plot(epochs, component_losses['acceleration']['train'], 'b-', linewidth=2, label='Train')
+        ax2.plot(epochs, component_losses['acceleration']['val'], 'r-', linewidth=2, label='Validation')
+        ax2.set_title('Acceleration Loss', fontsize=14)
+        ax2.set_xlabel('Epoch', fontsize=12)
+        ax2.set_ylabel('Loss (MSE)', fontsize=12)
+        ax2.grid(True, linestyle='--', alpha=0.7)
+        ax2.legend(fontsize=10)
+        
+        # Temperature loss
+        ax3.plot(epochs, component_losses['temperature']['train'], 'b-', linewidth=2, label='Train')
+        ax3.plot(epochs, component_losses['temperature']['val'], 'r-', linewidth=2, label='Validation')
+        ax3.set_title('Temperature Loss', fontsize=14)
+        ax3.set_xlabel('Epoch', fontsize=12)
+        ax3.set_ylabel('Loss (MSE)', fontsize=12)
+        ax3.grid(True, linestyle='--', alpha=0.7)
+        ax3.legend(fontsize=10)
+    
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+    
+def plot_rollout_relative_error(model, test_data_path, metadata, output_path, window_size=5, num_steps=100, device='cpu', clip_value=1000):
+    import h5py
+    from evaluate_rollout import perform_rollout
+    
+    # Load test data 
+    with h5py.File(test_data_path, 'r') as f:
+        ground_truth = {
+            "Coordinates": torch.tensor(f["Coordinates"][:], dtype=torch.float32),
+        }
+        if "InternalEnergy" in f:
+            internal_energy = torch.tensor(f["InternalEnergy"][:], dtype=torch.float32)
+            if len(internal_energy.shape) == 2:
+                internal_energy = internal_energy.unsqueeze(-1)
+            ground_truth["InternalEnergy"] = internal_energy
+
+    # Perform rollout
+    print("Performing rollout for relative error calculation...")
+    rollout_data = perform_rollout(
+        model=model,
+        initial_data=ground_truth,
+        metadata=metadata,
+        window_size=window_size,
+        num_steps=num_steps,
+        device=device,
+        num_neighbors=16
+    )
+    
+    # Calculate relative errors over time
+    pred_coords = rollout_data["Coordinates"][window_size:]
+    pred_temps = rollout_data["InternalEnergy"][window_size:]
+    
+    max_steps = min(len(pred_coords), len(ground_truth["Coordinates"]) - window_size)
+    true_coords = ground_truth["Coordinates"][window_size:window_size+max_steps]
+    true_temps = ground_truth["InternalEnergy"][window_size:window_size+max_steps]
+    
+    # Calculate relative error at each timestep
+    epsilon = 1e-8 
+    
+    coord_rel_errors = []
+    temp_rel_errors = []
+    
+    print("Calculating relative errors...")
+    for t in range(max_steps):
+        # For coordinates (position)
+        rel_err = (pred_coords[t] - true_coords[t]) / (torch.abs(true_coords[t]) + epsilon)
+        # Calculate absolute relative error and clip extreme values
+        rel_err_mean = torch.mean(torch.abs(rel_err)).item() * 100  # Convert to percentage
+        rel_err_mean = min(rel_err_mean, clip_value)  # Clip extreme values
+        coord_rel_errors.append(rel_err_mean)
+        
+        # For temperature
+        true_temp = true_temps[t]
+        if len(true_temp.shape) == 1:
+            true_temp = true_temp.unsqueeze(-1)
+            
+        pred_temp = pred_temps[t]
+        if len(pred_temp.shape) == 1:
+            pred_temp = pred_temp.unsqueeze(-1)
+            
+        temp_rel_err = (pred_temp - true_temp) / (torch.abs(true_temp) + epsilon)
+        temp_rel_err_mean = torch.mean(torch.abs(temp_rel_err)).item() * 100
+        temp_rel_err_mean = min(temp_rel_err_mean, clip_value)  # Clip extreme values
+        temp_rel_errors.append(temp_rel_err_mean)
+    
+    # Plot relative errors over time
+    plt.figure(figsize=(12, 8))
+    
+    plt.plot(coord_rel_errors, 'b-', linewidth=2, label='Position')
+    plt.plot(temp_rel_errors, 'r-', linewidth=2, label='Temperature')
+    
+    plt.axhline(y=0, color='k', linestyle='-', alpha=0.3)
+    plt.title('Relative Error Over Time', fontsize=16)
+    plt.xlabel('Rollout Step', fontsize=14)
+    plt.ylabel('Absolute Relative Error (%) |Ypred - Yreal| / |Yreal|', fontsize=14)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend(fontsize=12)
+    
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+    
+    print(f"Relative error plot saved to {output_path}")
+
 
 def rollout(model, data, metadata, noise_std):
     device = next(model.parameters()).device
@@ -176,10 +309,7 @@ def train():
             acc_pred = predictions['acceleration']
             temp_pred = predictions['temperature']
             
-            if batch_graph.y_acc is not None:
-                acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
-            else:
-                acc_loss = torch.tensor(0.0, device=device)
+            acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
             
             if hasattr(batch_graph, 'y_temp') and batch_graph.y_temp is not None:
                 if temp_pred.shape != batch_graph.y_temp.shape:
@@ -190,8 +320,9 @@ def train():
             else:
                 temp_loss = torch.tensor(0.0, device=device)
             
-            acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
-            temp_loss = loss_fn(temp_pred, batch_graph.y_temp)
+            # This might redundant so commenting out 
+            # acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
+            # temp_loss = loss_fn(temp_pred, batch_graph.y_temp)
             
             combined_loss = args.acc_loss_weight * acc_loss + args.temp_loss_weight * temp_loss
 
@@ -251,7 +382,7 @@ def train():
             os.path.join(plots_dir, f'losses_epoch_{epoch}.png'),
             component_losses
         )
-
+       
         # Periodic checkpoints        
         if (epoch + 1) % args.save_every == 0 or epoch == args.num_epochs - 1:
             checkpoint_path = os.path.join(args.output_dir, f"model_epoch_{epoch}.pth")
@@ -289,6 +420,21 @@ def train():
     
     with open(os.path.join(args.output_dir, 'training_history.json'), 'w') as f:
         json.dump(history, f, indent=4)
+        
+    if hasattr(args, 'test_data_path') and args.test_data_path:
+        print("\nGenerating relative error plot...")
+        plot_rollout_relative_error(
+            model=simulator,
+            test_data_path=args.test_data_path,
+            metadata=args.metadata,
+            output_path=os.path.join(plots_dir, 'relative_error.png'),
+            window_size=args.window_size,
+            num_steps=100,  
+            device=device,
+            clip_value=1000  # Limit extreme values
+        )
+    else:
+        print("\nNo test data path provided. Skipping relative error plot.")
     
     return simulator
     
