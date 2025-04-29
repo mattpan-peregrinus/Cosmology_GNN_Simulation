@@ -153,157 +153,7 @@ def evaluate_against_ground_truth(rollout_data, ground_truth, window_size):
         "mean_coord_error": np.mean(coord_errors),
         "mean_temp_error": np.mean(temp_errors) if temp_errors else None
     }
-
-def visualize_rollout(rollout_data, ground_truth, window_size, output_dir):
-    """
-    Create visualizations of the rollout.
-    """
-    os.makedirs(output_dir, exist_ok=True)
     
-    # Extract data
-    coords = rollout_data["Coordinates"]
-    temps = rollout_data["InternalEnergy"]
-    
-    # 1. Plot error over time if ground truth is available
-    if ground_truth is not None:
-        errors = evaluate_against_ground_truth(rollout_data, ground_truth, window_size)
-        
-        plt.figure(figsize=(10, 6))
-        plt.plot(errors["coord_errors"])
-        plt.axvline(x=0, color='r', linestyle='--', label='Prediction Start')
-        plt.title('Position MSE Over Time')
-        plt.xlabel('Prediction Step')
-        plt.ylabel('MSE')
-        plt.yscale('log')
-        plt.grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, 'position_error.png'))
-        plt.close()
-        
-        if errors["temp_errors"]:
-            plt.figure(figsize=(10, 6))
-            plt.plot(errors["temp_errors"])
-            plt.axvline(x=0, color='r', linestyle='--', label='Prediction Start')
-            plt.title('Temperature MSE Over Time')
-            plt.xlabel('Prediction Step')
-            plt.ylabel('MSE')
-            plt.yscale('log')
-            plt.grid(True, alpha=0.3)
-            plt.tight_layout()
-            plt.savefig(os.path.join(output_dir, 'temperature_error.png'))
-            plt.close()
-    
-    # 2. Plot trajectories for a few random particles (5 particles)
-    num_particles = coords.shape[1]
-    random_particles = np.random.choice(num_particles, min(5, num_particles), replace=False)
-    
-    for p_idx in random_particles:
-        # 2D trajectory plot (x,y)
-        plt.figure(figsize=(12, 10))
-        
-        # Plot predicted trajectory
-        plt.plot(coords[window_size:, p_idx, 0], 
-                 coords[window_size:, p_idx, 1], 
-                 'b-', label='Predicted')
-        
-        # Plot initial trajectory
-        plt.plot(coords[:window_size, p_idx, 0], 
-                 coords[:window_size, p_idx, 1], 
-                 'g-', label='Initial')
-        
-        # Plot ground truth if available
-        if ground_truth is not None:
-            # Limit to available ground truth
-            max_steps = min(len(coords) - window_size, len(ground_truth["Coordinates"]) - window_size)
-            
-            plt.plot(ground_truth["Coordinates"][window_size:window_size+max_steps, p_idx, 0],
-                    ground_truth["Coordinates"][window_size:window_size+max_steps, p_idx, 1],
-                    'r--', label='Ground Truth')
-        
-        plt.title(f'Particle {p_idx} Trajectory (x,y)')
-        plt.xlabel('X Position')
-        plt.ylabel('Y Position')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.savefig(os.path.join(output_dir, f'trajectory_2d_particle_{p_idx}.png'))
-        plt.close()
-        
-        # 3D trajectory plot
-        fig = plt.figure(figsize=(12, 10))
-        ax = fig.add_subplot(111, projection='3d')
-        
-        # Plot predicted trajectory
-        ax.plot(coords[window_size:, p_idx, 0], 
-                coords[window_size:, p_idx, 1],
-                coords[window_size:, p_idx, 2],
-                'b-', label='Predicted')
-        
-        # Plot initial trajectory
-        ax.plot(coords[:window_size, p_idx, 0], 
-                coords[:window_size, p_idx, 1],
-                coords[:window_size, p_idx, 2],
-                'g-', label='Initial')
-        
-        # Plot ground truth if available
-        if ground_truth is not None:
-            # Limit to available ground truth
-            max_steps = min(len(coords) - window_size, len(ground_truth["Coordinates"]) - window_size)
-            
-            ax.plot(ground_truth["Coordinates"][window_size:window_size+max_steps, p_idx, 0],
-                   ground_truth["Coordinates"][window_size:window_size+max_steps, p_idx, 1],
-                   ground_truth["Coordinates"][window_size:window_size+max_steps, p_idx, 2],
-                   'r--', label='Ground Truth')
-        
-        ax.set_title(f'Particle {p_idx} Trajectory (3D)')
-        ax.set_xlabel('X Position')
-        ax.set_ylabel('Y Position')
-        ax.set_zlabel('Z Position')
-        ax.legend()
-        plt.savefig(os.path.join(output_dir, f'trajectory_3d_particle_{p_idx}.png'))
-        plt.close()
-    
-    # 3. Visualize the temperature evolution for a few particles
-    for p_idx in random_particles:
-        plt.figure(figsize=(10, 6))
-        
-        # Plot predicted temperature
-        plt.plot(np.arange(len(temps)), temps[:, p_idx, 0], 'b-', label='Predicted')
-        
-        # Mark the prediction start
-        plt.axvline(x=window_size, color='g', linestyle='--', label='Prediction Start')
-        
-        # Plot ground truth if available
-        if ground_truth is not None and "InternalEnergy" in ground_truth:
-            true_temps = ground_truth["InternalEnergy"]
-            
-            # Handle dimension issues
-            if len(true_temps.shape) == 2:
-                true_temps = true_temps.unsqueeze(-1)
-                
-            # Plot ground truth temperature
-            plt.plot(np.arange(len(true_temps)), true_temps[:, p_idx, 0], 'r--', label='Ground Truth')
-        
-        plt.title(f'Particle {p_idx} Temperature Evolution')
-        plt.xlabel('Time Step')
-        plt.ylabel('Temperature')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.savefig(os.path.join(output_dir, f'temperature_particle_{p_idx}.png'))
-        plt.close()
-    
-    # 4. Save a summary text file
-    with open(os.path.join(output_dir, 'rollout_summary.txt'), 'w') as f:
-        f.write(f"Rollout Summary\n")
-        f.write(f"==============\n\n")
-        f.write(f"Number of particles: {num_particles}\n")
-        f.write(f"Window size: {window_size}\n")
-        f.write(f"Prediction steps: {len(coords) - window_size}\n\n")
-        
-        if ground_truth is not None:
-            errors = evaluate_against_ground_truth(rollout_data, ground_truth, window_size)
-            f.write(f"Mean position error: {errors['mean_coord_error']:.6e}\n")
-            if errors['mean_temp_error'] is not None:
-                f.write(f"Mean temperature error: {errors['mean_temp_error']:.6e}\n")
 
 def main():
     parser = argparse.ArgumentParser(description='Perform model rollout evaluation')
@@ -335,16 +185,7 @@ def main():
         metadata = json.load(f)
     
     # Load model
-    model = EncodeProcessDecode(
-        latent_size=args.latent_size,
-        mlp_hidden_size=args.mlp_hidden_size,
-        mlp_num_hidden_layers=args.mlp_num_hidden_layers,
-        num_message_passing_steps=args.num_message_passing_steps,
-        output_size=args.output_size
-    ).to(args.device)
-    
-    model.load_state_dict(torch.load(args.model_path, map_location=args.device))
-    model.eval()
+    model = load_model(args.model_path, args)
     
     print(f"Loading test data from {args.test_data}")
     
@@ -355,7 +196,6 @@ def main():
             "Coordinates": torch.tensor(f["Coordinates"][:], dtype=torch.float32),
         }
         
-        # Handle InternalEnergy if it exists
         if "InternalEnergy" in f:
             internal_energy = torch.tensor(f["InternalEnergy"][:], dtype=torch.float32)
             if len(internal_energy.shape) == 2:
@@ -375,17 +215,36 @@ def main():
         num_neighbors=args.num_neighbors
     )
     
-    print(f"Creating visualizations in {args.output_dir}")
-    
-    # Visualize rollout
-    visualize_rollout(
+    errors = evaluate_against_ground_truth(
         rollout_data=rollout_data,
         ground_truth=ground_truth,
-        window_size=args.window_size,
-        output_dir=args.output_dir
+        window_size=args.window_size
     )
     
-    print("Done!")
+    os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Save summary text file
+    with open(os.path.join(args.output_dir, 'rollout_summary.txt'), 'w') as f:
+        f.write(f"Rollout Summary\n")
+        f.write(f"==============\n\n")
+        f.write(f"Number of particles: {rollout_data['Coordinates'].shape[1]}\n")
+        f.write(f"Window size: {args.window_size}\n")
+        f.write(f"Prediction steps: {args.num_steps}\n\n")
+        f.write(f"Mean position error: {errors['mean_coord_error']:.6e}\n")
+        if errors['mean_temp_error'] is not None:
+            f.write(f"Mean temperature error: {errors['mean_temp_error']:.6e}\n")
+        
+        # Also write the error at each time step
+        f.write("\nPosition error at each time step:\n")
+        for t, err in enumerate(errors['coord_errors']):
+            f.write(f"Step {t}: {err:.6e}\n")
+            
+        if errors['temp_errors']:
+            f.write("\nTemperature error at each time step:\n")
+            for t, err in enumerate(errors['temp_errors']):
+                f.write(f"Step {t}: {err:.6e}\n")
+    
+    print(f"Evaluation complete. Results saved to {args.output_dir}")
 
 if __name__ == "__main__":
     main()
