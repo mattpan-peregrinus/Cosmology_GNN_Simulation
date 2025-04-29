@@ -22,10 +22,11 @@ def generate_metadata(dataset_path, output_path):
         acc_mean = np.mean(accelerations, axis=(0, 1))
         acc_std = np.std(accelerations, axis=(0, 1))
         
-        min_coords = np.min(coordinates, axis=(0, 1))
-        max_coords = np.max(coordinates, axis=(0, 1))
+        # Manually set the box size 
+        # min_coords = np.min(coordinates, axis=(0, 1))
+        # max_coords = np.max(coordinates, axis=(0, 1))
         bounds = np.stack([min_coords, max_coords], axis=1)
-        box_size = max_coords - min_coords
+        box_size = 2
 
         metadata = {
             "temp_mean": temp_mean.tolist(),
