@@ -12,7 +12,7 @@ def get_config():
     parser.add_argument('--output_dir', type=str, default='model_output', help='Path to output directory')
     
     parser.add_argument('--num_neighbors', type=int, default=16, help='Number of nearest neighbors to consider for each node')
-    parser.add_argument('--batch_size', type=int, default=1, help='Batch size for training')
+    parser.add_argument('--batch_size', type=int, default=2, help='Batch size for training')
     
     # Training / hardware args 
     parser.add_argument('--window_size', type=int, default=5, help='Number of time steps to use for input sequence')
@@ -21,6 +21,8 @@ def get_config():
     parser.add_argument('--mlp_num_hidden_layers', type=int, default=2, help='Number of hidden layers in MLPs')
     parser.add_argument('--num_message_passing_steps', type=int, default=10, help='Number of message passing steps in processor')
     parser.add_argument('--output_size', type=int, default=3, help='Output dimension (typically 3 for 3D acceleration)')
+    
+    # Usually train with noise sd of 0.0003
     parser.add_argument('--noise_std', type=float, default=0.0, help='Standard deviation of noise added to positions')
     parser.add_argument('--num_epochs', type=int, default=10, help='Number of epochs to train')
     parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate for optimizer')
