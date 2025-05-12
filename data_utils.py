@@ -152,10 +152,6 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     # Flatten features for input to the model
     flat_velocity = normal_velocity_seq.reshape(normal_velocity_seq.size(0), -1)
     flat_temperature = normal_temp_seq.reshape(normal_temp_seq.size(0), -1)
-    
-    # Add dt as a feature (normalized to be around 0)
-    dt_feature = torch.full((normal_velocity_seq.size(0), 1), dt, dtype=torch.float32)
-    normalized_dt = (dt_feature - 1.0) / 0.5  # Simple normalization assuming dt is close to 1.0
             
     # Create node features (including dt information)
     if particle_type is None:
@@ -163,7 +159,6 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
             flat_velocity, 
             flat_temperature, 
             normalized_position,
-            normalized_dt  # Add dt as a feature
         ), dim=-1)
     else:
         node_features = particle_type.float32
