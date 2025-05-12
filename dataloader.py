@@ -34,6 +34,16 @@ class SequenceDataset(Dataset):
             self.num_snapshots = f[self.field_names[0]].shape[0]
             self.num_particles = f[self.field_names[0]].shape[1]
             self.ndims = [f[field_name][:].shape[-1] for field_name in self.field_names]
+            
+            if "BoxSize" in f.attrs:
+                self.box_size = f.attrs["BoxSize"]
+            else:
+                self.box_size = 2.0
+                
+            if "TimeStep" in f.attrs:
+                self.dt = f.attrs["TimeStep"]
+            else:
+                self.dt = 1.0
 
         self.norms = norms
         self.augment = augment
@@ -68,7 +78,6 @@ class SequenceDataset(Dataset):
         print(f"start indices = {self.start_indices}")
         print(f"start_indices length = {len(self.start_indices)}")
         '''
-    
         
 
     def __len__(self):
@@ -101,7 +110,7 @@ class SequenceDataset(Dataset):
 
         in_fields = {key:torch.from_numpy(field).float() for key, field in in_fields.items()}
         tgt_fields = {key:torch.from_numpy(field).float() for key, field in tgt_fields.items()}
-
+        
         # If self.norm is not None:
         if self.augment:
             # Apply time reversal symmetry
@@ -112,7 +121,7 @@ class SequenceDataset(Dataset):
                     if key == "Velocities":
                         field = -1 * field
                     in_fields[key] = torch.flip(field, [flip_dim])
-                # No need for target fields, since we only predict next 1 time step
+
 
             # Apply random permutaion of xyz axis
             if np.random.random() < self.augment_prob:
@@ -130,6 +139,10 @@ class SequenceDataset(Dataset):
                         tgt_fields[key] = field
 
         return {
-            "input": in_fields,
+            "input": {
+                **in_fields,
+                "box_size": torch.tensor([self.box_size], dtype=torch.float32),
+                "dt": torch.tensor([self.dt], dtype=torch.float32)
+            },
             "target": tgt_fields,
         }

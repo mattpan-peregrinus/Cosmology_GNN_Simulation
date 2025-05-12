@@ -154,32 +154,86 @@ def rollout(model, data, metadata, noise_std):
     model.eval()
     window_size = 6  
 
+    dt = metadata.get('dt', 1.0)  # Default to 1.0 if not specified
+    box_size = metadata.get('box_size')
+    if isinstance(box_size, list) and box_size:
+        box_size = float(box_size[0])
+
     total_time = data["Coordinates"].size(0)
     traj = data["Coordinates"][:window_size].permute(1, 0, 2).float()
+    
+    if "InternalEnergy" in data:
+        temp_traj = data["InternalEnergy"][:window_size].permute(1, 0, 2).float()
+        if len(temp_traj.shape) == 2:
+            temp_traj = temp_traj.unsqueeze(-1)
+    else:
+        # Create dummy temperature data if needed
+        temp_traj = torch.zeros_like(traj[:, :, :1])
+        
     particle_type = None
 
     for time in range(total_time - window_size):
         # Build a graph with no noise for rollout
         from data_utils import preprocess
         input_positions = traj[:, -window_size:].permute(1, 0, 2)
-        graph = preprocess(particle_type, input_positions, None, metadata, 0.0, num_neighbors=16)
+        input_temps = temp_traj[:, -window_size:].permute(1, 0, 2)
+        
+        graph = preprocess(
+            particle_type=particle_type, 
+            position_seq=input_positions, 
+            target_position=None, 
+            metadata=metadata, 
+            noise_std=0.0, 
+            num_neighbors=16, 
+            temperature_seq=input_temps,
+            box_size=box_size,
+            dt=dt
+        )
         graph = graph.to(device)
 
-        # Predict acceleration
-        acceleration = model(graph).cpu()
+        # Predict acceleration and temperature change
+        predictions = model(graph)
+        acc_pred = predictions['acceleration'].cpu()
+        temp_pred = predictions['temperature'].cpu()
 
         # Un-normalize acceleration
         acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
         acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
-        acceleration = acceleration * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
-
+        
+        # Only scale by dt if not 1.0 
+        if dt != 1.0:
+            acc_mean = acc_mean / (dt*dt)
+            acc_std = acc_std / (dt*dt)
+        acc_pred = acc_pred * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
+        
+        # Un-normalize temperature
+        if "temp_std" in metadata and "temp_mean" in metadata:
+            temp_std = torch.tensor(metadata.get("temp_change_std", metadata["temp_std"]), dtype=torch.float32)
+            temp_mean = torch.tensor(metadata.get("temp_change_mean", 0.0), dtype=torch.float32)
+            
+            if dt != 1.0:
+                temp_mean = temp_mean / dt
+                temp_std = temp_std / dt
+            temp_pred = temp_pred * torch.sqrt(temp_std**2 + noise_std**2) + temp_mean
+        
+        # PHYSICS INTEGRATION !!!
         recent_position = traj[:, -1]
-        recent_velocity = recent_position - traj[:, -2]
-        new_velocity = recent_velocity + acceleration
-        new_position = recent_position + new_velocity
+        recent_velocity = (recent_position - traj[:, -2]) / dt
+        recent_temp = temp_traj[:, -1]
+        
+        # Correct integration with dt
+        new_velocity = recent_velocity + acc_pred * dt
+        new_position = recent_position + new_velocity * dt
+        new_temp = recent_temp + temp_pred * dt
+        
         traj = torch.cat((traj, new_position.unsqueeze(1)), dim=1)
-
-    return traj.permute(1, 0, 2)
+        temp_traj = torch.cat((temp_traj, new_temp.unsqueeze(1)), dim=1)
+        
+    return {
+        "Coordinates": traj.permute(1, 0, 2),
+        "InternalEnergy": temp_traj.permute(1, 0, 2)
+    }
+    
 
 def load_pretrained_model(model, model_path):
     try:
@@ -197,17 +251,25 @@ def train():
     plots_dir = os.path.join(args.output_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
     
-    batch_size = 2
-    num_epochs = 1
-    noise_std = 3e-4
-    learning_rate = 1e-4
-    model_path = "model_output"
-    os.makedirs(model_path, exist_ok=True)
+    dt = getattr(args, 'dt', 1.0)
+    box_size = getattr(args, 'box_size', None)
+    
+    # If not  provided in args, check metadata
+    if box_size is None and 'box_size' in args.metadata:
+        box_size = args.metadata['box_size']
+        if isinstance(box_size, list):
+            box_size = float(box_size[0])
+    
+    if dt == 1.0 and 'dt' in args.metadata:
+        dt = args.metadata['dt']
+        
+    print(f"Using time step (dt): {dt}")
+    print(f"Using box size: {box_size}")
     
     train_dataset, val_dataset = get_train_val_datasets(
         data_path=args.dataset_path,
         window_size=args.window_size,
-        val_split=0.2,  # 20% for validation
+        val_split=0.2,  
         augment=args.augment_prob > 0, 
         augment_prob=args.augment_prob,
         seed=args.seed
@@ -274,13 +336,6 @@ def train():
                 batch["input"][key] = batch["input"][key].float()
             for key in batch["target"]:
                 batch["target"][key] = batch["target"][key].float()
-                
-            #print(f"Batch input Coordinates shape: {batch['input']['Coordinates'].shape}")
-            #print(f"Batch target Coordinates shape: {batch['target']['Coordinates'].shape}")
-            
-            if "InternalEnergy" not in batch["input"]:
-                raise ValueError("InternalEnergy is required in the dataset")
-            #print(f"Batch input InternalEnergy shape: {batch['input']['InternalEnergy'].shape}")
             
             # Process each sample in the batch to create graphs
             graphs = []
@@ -288,6 +343,9 @@ def train():
                 input_coords = batch["input"]["Coordinates"][i] 
                 target_coords = batch["target"]["Coordinates"][i] 
                 temperature_seq = batch["input"]["InternalEnergy"][i]  
+                
+                batch_dt = batch["input"].get("dt", [dt])[i] if "dt" in batch["input"] else dt
+                batch_box_size = batch["input"].get("box_size", [box_size])[i] if "box_size" in batch["input"] else box_size
                 
                 graph = preprocess(
                     particle_type=None,
@@ -298,6 +356,8 @@ def train():
                     num_neighbors=args.num_neighbors,
                     temperature_seq=temperature_seq,
                     target_temperature=batch["target"]["InternalEnergy"][i],
+                    dt=batch_dt,
+                    box_size=batch_box_size
                 )
                 graphs.append(graph)
             
@@ -319,10 +379,6 @@ def train():
                     temp_loss = loss_fn(temp_pred, batch_graph.y_temp)
             else:
                 temp_loss = torch.tensor(0.0, device=device)
-            
-            # This might redundant so commenting out 
-            # acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
-            # temp_loss = loss_fn(temp_pred, batch_graph.y_temp)
             
             combined_loss = args.acc_loss_weight * acc_loss + args.temp_loss_weight * temp_loss
 
@@ -353,7 +409,11 @@ def train():
         component_losses['acceleration']['train'].append(avg_acc_train_loss)
         component_losses['temperature']['train'].append(avg_temp_train_loss)
         
-        val_loss, val_component_losses = validate(simulator, val_loader, device, loss_fn, args.acc_loss_weight, args.temp_loss_weight, args.metadata, 0, args.num_neighbors)
+        val_loss, val_component_losses = validate(
+            simulator, val_loader, device, loss_fn, 
+            args.acc_loss_weight, args.temp_loss_weight, 
+            args.metadata, 0, args.num_neighbors
+        )
         
         val_losses.append(val_loss)
         component_losses['acceleration']['val'].append(val_component_losses['acceleration'])
@@ -415,7 +475,7 @@ def train():
             'temp_val': component_losses['temperature']['val']
         },
         'best_epoch': best_epoch,
-        'best_val_loss': best_val_loss
+        'best_val_loss': best_val_loss,
     }
     
     with open(os.path.join(args.output_dir, 'training_history.json'), 'w') as f:
@@ -431,7 +491,7 @@ def train():
             window_size=args.window_size,
             num_steps=100,  
             device=device,
-            clip_value=1000  # Limit extreme values
+            clip_value=1000,  # Limit extreme values
         )
     else:
         print("\nNo test data path provided. Skipping relative error plot.")

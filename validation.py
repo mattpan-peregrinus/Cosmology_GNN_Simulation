@@ -9,6 +9,11 @@ def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weig
     temp_loss_total = 0.0
     count = 0
     
+    dt = metadata.get('dt', 1.0)
+    box_size = metadata.get('box_size')
+    if isinstance(box_size, list) and box_size:
+        box_size = float(box_size[0])
+    
     with torch.no_grad():  
         for batch in val_loader:
             for key in batch["input"]:
@@ -22,6 +27,9 @@ def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weig
                 target_coords = batch["target"]["Coordinates"][i]
                 temperature_seq = batch["input"]["InternalEnergy"][i]
                 
+                batch_dt = batch["input"].get("dt", [dt])[i] if "dt" in batch["input"] else dt
+                batch_box_size = batch["input"].get("box_size", [box_size])[i] if "box_size" in batch["input"] else box_size
+                
                 graph = preprocess(
                     particle_type=None,
                     position_seq=input_coords,
@@ -30,7 +38,9 @@ def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weig
                     noise_std=noise_std,
                     num_neighbors=num_neighbors,
                     temperature_seq=temperature_seq,
-                    target_temperature=batch["target"]["InternalEnergy"][i]
+                    target_temperature=batch["target"]["InternalEnergy"][i],
+                    dt=dt,
+                    box_size=batch_box_size
                 )
                 graphs.append(graph)
             

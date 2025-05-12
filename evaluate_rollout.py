@@ -32,6 +32,11 @@ def perform_rollout(model, initial_data, metadata, window_size, num_steps, devic
     """
     model.eval()
     
+    dt = metadata.get('dt', 1.0) 
+    box_size = metadata.get('box_size')
+    if isinstance(box_size, list) and box_size:
+        box_size = float(box_size[0])
+    
     # Initialize with the known data
     coords_seq = initial_data["Coordinates"][:window_size].float()  # [window_size, num_particles, 3]
     temp_seq = initial_data["InternalEnergy"][:window_size].float()  # [window_size, num_particles, 1]
@@ -70,7 +75,9 @@ def perform_rollout(model, initial_data, metadata, window_size, num_steps, devic
             metadata=metadata,
             noise_std=noise_std,  # No noise for evaluation
             num_neighbors=num_neighbors,
-            temperature_seq=window_temps
+            temperature_seq=window_temps,
+            dt = dt,
+            box_size = box_size
         )
         graph = graph.to(device)
         
@@ -80,27 +87,40 @@ def perform_rollout(model, initial_data, metadata, window_size, num_steps, devic
             acc_pred = predictions['acceleration'].cpu()
             temp_pred = predictions['temperature'].cpu()
         
-        # Un-normalize predictions
+        # Un-normalize acceleration
         acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
         acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
+        
+        # Scale acceleration statistics by dt²
+        if dt != 1.0:
+            acc_mean = acc_mean / (dt*dt)
+            acc_std = acc_std / (dt*dt)
+            
         acc_pred = acc_pred * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
         
+        # Un-normalize temperature change
         if "temp_std" in metadata and "temp_mean" in metadata:
             temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
             temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
+            
+            # Scale temperature change by dt
+            if dt != 1.0:
+                temp_mean = temp_mean / dt
+                temp_std = temp_std / dt
+                
             temp_pred = temp_pred * torch.sqrt(temp_std**2 + noise_std**2) + temp_mean
         
         # Update position: get recent position and velocity
         recent_position = window_coords[-1]  # [num_particles, 3]
-        recent_velocity = recent_position - window_coords[-2]  # [num_particles, 3]
+        recent_velocity = (recent_position - window_coords[-2]) / dt  # Scale by dt
         
         # Compute new velocity and position
-        new_velocity = recent_velocity + acc_pred
-        new_position = recent_position + new_velocity
+        new_velocity = recent_velocity + acc_pred * dt
+        new_position = recent_position + new_velocity * dt
         
         # Update temperature
         recent_temp = window_temps[-1]  # [num_particles, 1]
-        new_temp = recent_temp + temp_pred
+        new_temp = recent_temp + temp_pred * dt  # Scale by dt
         
         # Store results
         rolled_coords[current_idx] = new_position
