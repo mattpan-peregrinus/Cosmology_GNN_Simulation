@@ -14,6 +14,10 @@ def get_config():
     parser.add_argument('--num_neighbors', type=int, default=16, help='Number of nearest neighbors to consider for each node')
     parser.add_argument('--batch_size', type=int, default=2, help='Batch size for training')
     
+    # Physics args
+    parser.add_argument('--dt', type=float, default=1.0, help='Time step size for physics calculations')
+    parser.add_argument('--box_size', type=float, default=None, help='Size of the simulation box')
+    
     # Training / hardware args 
     parser.add_argument('--window_size', type=int, default=5, help='Number of time steps to use for input sequence')
     parser.add_argument('--latent_size', type=int, default=128, help='Size of latent representations')
@@ -46,6 +50,12 @@ def get_config():
     
     with open(args.metadata_path, 'r') as f:
         args.metadata = json.load(f)
+        
+    # Override metadata values with command line args if provided
+    if args.dt != 1.0 and 'dt' in args.metadata:
+        args.metadata['dt'] = args.dt
+    if args.box_size is not None and 'box_size' in args.metadata:
+        args.metadata['box_size'] = args.box_size
         
     import numpy as np
     import random 

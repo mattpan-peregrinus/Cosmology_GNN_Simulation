@@ -44,24 +44,17 @@ def generate_noise(position_seq, noise_std):
     return position_noise
 
 
-def preprocess(particle_type, position_seq, target_position, metadata, noise_std, num_neighbors, temperature_seq, target_temperature=None):
+def preprocess(particle_type, position_seq, target_position, metadata, noise_std, num_neighbors, temperature_seq, target_temperature=None, box_size=None, dt=1.0):
     """Preprocess a trajectory and construct a PyG Data object with both position and temperature target."""
     position_seq = position_seq.float()
     if target_position is not None:
         target_position = target_position.float()
-        
-    #print(f"Original position_seq shape: {position_seq.shape}") # should get [window_size, num_particles, 3]
-    
-    position_seq = position_seq.permute(1, 0, 2)
-    #print(f"Transposed position_seq shape: {position_seq.shape}")  # should be [num_particles, window_size, 3]
-    
     temperature_seq = temperature_seq.float()
-    #print(f"Original temperature_seq shape: {temperature_seq.shape}")
     
+    # Rearrange dimensions if needed
+    position_seq = position_seq.permute(1, 0, 2)    
     if temperature_seq.shape[0] == position_seq.shape[1] and temperature_seq.shape[1] == position_seq.shape[0]:
-        temperature_seq = temperature_seq.permute(1, 0, 2)
-    #print(f"Processed temperature_seq shape: {temperature_seq.shape}")
-    
+        temperature_seq = temperature_seq.permute(1, 0, 2)    
     
     # Apply noise
     position_noise = generate_noise(position_seq, noise_std)
@@ -69,15 +62,14 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
 
     # Compute velocities
     recent_position = position_seq[:, -1] 
-    velocity_seq = position_seq[:, 1:] - position_seq[:, :-1]
+    velocity_seq = (position_seq[:, 1:] - position_seq[:, :-1]) / dt
 
     # Get recent temperature
-    recent_temperature = temperature_seq[:, -1]  # [num_particles, 1]
+    recent_temperature = temperature_seq[:, -1] 
     temperature_history = temperature_seq[:, :-1]  
     
     if target_temperature is not None:
         target_temperature = target_temperature.float()
-        #print(f"Original target_temperature shape: {target_temperature.shape}")
         if target_temperature.dim() == 3:  # [1, num_particles, 1]
             target_temperature = target_temperature.permute(1, 0, 2)  # -> [num_particles, 1, 1]
             target_temperature = target_temperature.squeeze(1)  # -> [num_particles, 1]
@@ -88,18 +80,24 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
             print(f"Shape mismatch: target_temp {target_temperature.shape} vs recent_temp {recent_temperature.shape}")
             if target_temperature.numel() == recent_temperature.numel():
                 target_temperature = target_temperature.reshape(recent_temperature.shape)
+    
+    # Determine box size 
+    if box_size is not None:
+        if isinstance(box_size, torch.Tensor):
+            actual_box_size = box_size.item() if box_size.numel() == 1 else box_size
+        else:
+            actual_box_size = box_size
+    elif "box_size" in metadata and metadata["box_size"] is not None:
+        actual_box_size = metadata["box_size"]
+        if isinstance(actual_box_size, list):
+            actual_box_size = float(actual_box_size[0])
+    else:
+        actual_box_size = None
         
-    #print(f"recent_position shape: {recent_position.shape}") # should get [num_particles, 3]
-    #print(f"velocity_seq shape: {velocity_seq.shape}") # should get [num_particles, window_size-1, 3]
-    #print(f"temperature_history shape: {temperature_history.shape}") # should get [num_particles, window_size-1, 1]
  
     # Construct the graph via k-nearest neighbors with periodicity if desired
-    if "box_size" in metadata and metadata["box_size"] is not None:
-        box_size = metadata["box_size"]
-        if isinstance(box_size, list):
-            box_size = float(box_size[0])
-        
-        extended_positions, mapping = extend_positions_torch(recent_position, box_size)
+    if actual_box_size is not None:
+        extended_positions, mapping = extend_positions_torch(recent_position, actual_box_size)
         edge_index = knn(extended_positions, recent_position, num_neighbors)
         edge_index = torch.stack([edge_index[1], edge_index[0]], dim=0)
         edge_index[0] = mapping[edge_index[0]]
@@ -115,52 +113,63 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     # Node-level features
     vel_mean = torch.tensor(metadata["vel_mean"], dtype=torch.float32)
     vel_std = torch.tensor(metadata["vel_std"], dtype=torch.float32)
+    
+    if dt != 1.0:
+        vel_mean = vel_mean / dt
+        vel_std = vel_std / dt
+        
     normal_velocity_seq = (velocity_seq - vel_mean) / torch.sqrt(vel_std**2 + noise_std**2)
     boundary = torch.tensor(metadata["bounds"], dtype=torch.float32)
     
-    #print(f"boundary shape: {boundary.shape}") # should get [3, 2]
 
     # Normalize positions to be between [0, 1] within the simulation box
     if len(boundary.shape) == 2 and boundary.shape[0] == 3:
         # Boundary has shape [3, 2] where 3 is dimensions (x,y,z) and 2 is (min, max)
         lower_bound = boundary[:, 0]  
         upper_bound = boundary[:, 1]  
-        box_size = upper_bound - lower_bound
+        box_dims = upper_bound - lower_bound
         
         # Normalize recent position to [0, 1] range within the box
-        normalized_position = (recent_position - lower_bound) / box_size
+        normalized_position = (recent_position - lower_bound) / box_dims
     else:
-        print(f"Unexpected boundary shape: {boundary.shape}")
-        raise ValueError("Boundary shape is not as expected.")
-
-    if particle_type is None:
-        # Flatten velocity sequence to create features
-        # normal_velocity_seq has shape [num_particles, window_size-1, 3]
-        flat_velocity = normal_velocity_seq.reshape(normal_velocity_seq.size(0), -1)
-        
-        if "temp_mean" in metadata and "temp_std" in metadata:
-            temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
-            temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
-            normal_temp_seq = (temperature_history - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
+        # Fallback normalization with box_size
+        if actual_box_size is not None:
+            normalized_position = recent_position / actual_box_size
         else:
-            print("Temperature metadata not found. Using raw temperature.")
-            normal_temp_seq = temperature_history
-        
-        flat_temperature = normal_temp_seq.reshape(normal_temp_seq.size(0), -1)
-        #print(f"flat_temperature shape: {flat_temperature.shape}")
-        
-        node_features = torch.cat((flat_velocity, flat_temperature, normalized_position), dim=-1)
-        
-        #print(f"flat_velocity shape: {flat_velocity.shape}")  # should be [num_particles, (window_size-1)*3]
-        #print(f"normalized_position shape: {normalized_position.shape}")  # should be [num_particles, 3]
-        #print(f"node_features shape: {node_features.shape}")  # should be [num_particles, (window_size-1)*3 + (window_size-1)*1 + 3]
+            # No normalization possible
+            normalized_position = recent_position
+            print("Warning: No box dimensions available for position normalization")
     
+    
+    # Process temperature features
+    if "temp_mean" in metadata and "temp_std" in metadata:
+        temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
+        temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
+        normal_temp_seq = (temperature_history - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
+    else:
+        normal_temp_seq = temperature_history
+    
+    # Flatten features for input to the model
+    flat_velocity = normal_velocity_seq.reshape(normal_velocity_seq.size(0), -1)
+    flat_temperature = normal_temp_seq.reshape(normal_temp_seq.size(0), -1)
+    
+    # Add dt as a feature (normalized to be around 0)
+    dt_feature = torch.full((normal_velocity_seq.size(0), 1), dt, dtype=torch.float32)
+    normalized_dt = (dt_feature - 1.0) / 0.5  # Simple normalization assuming dt is close to 1.0
+            
+    # Create node features (including dt information)
+    if particle_type is None:
+        node_features = torch.cat((
+            flat_velocity, 
+            flat_temperature, 
+            normalized_position,
+            normalized_dt  # Add dt as a feature
+        ), dim=-1)
     else:
         node_features = particle_type.float32
         
         
     # Edge-level features
-    dim = recent_position.size(-1)
     senders = edge_index[0]
     receivers = edge_index[1]
     
@@ -175,19 +184,14 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
 
     # Ground truth for training (acceleration)
     if target_position is not None:
-        #print(f"Target position original shape: {target_position.shape}")
-        
         if target_position.dim() == 3:  # [1, num_particles, 3]
             target_position = target_position.permute(1, 0, 2)  # -> [num_particles, 1, 3]
             target_position = target_position.squeeze(1)  # -> [num_particles, 3]
         elif target_position.dim() == 2 and target_position.shape[0] != recent_position.shape[0]:
             target_position = target_position.reshape(-1, 3)
         
-        #print(f"Target position reshaped: {target_position.shape}")
-        #print(f"Recent position shape: {recent_position.shape}")
-        
-        last_velocity = velocity_seq[:, -1]
-        next_velocity = target_position - recent_position
+        last_velocity = velocity_seq[:, -1]  # Already scaled by dt
+        next_velocity = (target_position - recent_position) / dt  # Scale by dt
         
         # Apply noise correction
         if position_noise.dim() > 2:
@@ -195,27 +199,35 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         else:
             noise_term = position_noise[-1]
         
-        #print(f"Noise term shape: {noise_term.shape}")
-        next_velocity = next_velocity + noise_term
-        acceleration = next_velocity - last_velocity
+        next_velocity = next_velocity + noise_term/dt  # Scale noise by dt
         
+        # Calculate acceleration (change in velocity over time)
+        acceleration = (next_velocity - last_velocity) / dt  # Scale by dt again for acceleration
+        
+        # Normalize acceleration
         acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
         acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
+        
+        # Scale acceleration statistics if dt is not 1.0
+        if dt != 1.0:
+            acc_mean = acc_mean / (dt*dt)  # a = dv/dt, and v = dx/dt, so a = d²x/dt²
+            acc_std = acc_std / (dt*dt)
+            
         acceleration = (acceleration - acc_mean) / torch.sqrt(acc_std**2 + noise_std**2)
     
     if target_temperature is not None:
         if target_temperature.dim() == 3:
             target_temperature = target_temperature.squeeze(1)
         
-        #print(f"Target temperature reshaped: {target_temperature.shape}")
-        #print(f"Recent temperature shape: {recent_temperature.shape}")
-        
-        temperature_change = target_temperature - recent_temperature
+        # Calculate temperature change rate (per unit time)
+        temperature_change = (target_temperature - recent_temperature) / dt
         
         if "temp_mean" in metadata and "temp_std" in metadata:
-            temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
-            temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
-            temperature_change = (temperature_change - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
+            # Scale temperature change statistics by dt
+            temp_change_mean = torch.tensor(metadata.get("temp_change_mean", 0.0), dtype=torch.float32) / dt
+            temp_change_std = torch.tensor(metadata.get("temp_change_std", metadata["temp_std"]), dtype=torch.float32) / dt
+            temperature_change = (temperature_change - temp_change_mean) / torch.sqrt(temp_change_std**2 + noise_std**2)
+            
 
     # Build a PyG Data object
     from torch_geometric.data import Data
@@ -225,6 +237,8 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         edge_attr=torch.cat((edge_displacement, edge_distance), dim=-1),
         y_acc=acceleration.float() if acceleration is not None else None,
         y_temp=temperature_change.float() if temperature_change is not None else None,
-        pos=recent_position
+        pos=recent_position,
+        dt=torch.tensor([dt], dtype=torch.float32),  
+        box_size=torch.tensor([actual_box_size], dtype=torch.float32) if actual_box_size is not None else None  
     )
     return graph
