@@ -335,7 +335,7 @@ def train():
             for i in range(len(batch["input"]["Coordinates"])):
                 input_coords = batch["input"]["Coordinates"][i] 
                 target_coords = batch["target"]["Coordinates"][i] 
-                temperature_seq = batch["input"]["InternalEnergy"][i]
+                input_temperature = batch["input"]["InternalEnergy"][i]
                 target_temperature = batch["target"]["InternalEnergy"][i]  
                 
                 batch_dt = batch["input"].get("dt", [dt])[i] if "dt" in batch["input"] else dt
@@ -348,7 +348,7 @@ def train():
                     metadata=args.metadata,
                     noise_std=args.noise_std,
                     num_neighbors=args.num_neighbors,
-                    temperature_seq=temperature_seq,
+                    temperature_seq=input_temperature,
                     target_temperature=target_temperature,
                     dt=batch_dt,
                     box_size=batch_box_size
