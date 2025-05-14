@@ -90,11 +90,6 @@ def perform_rollout(model, initial_data, metadata, window_size, num_steps, devic
         # Un-normalize acceleration
         acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
         acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
-        
-        # Scale acceleration statistics by dt²
-        if dt != 1.0:
-            acc_mean = acc_mean / (dt*dt)
-            acc_std = acc_std / (dt*dt)
             
         acc_pred = acc_pred * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
         
@@ -102,11 +97,6 @@ def perform_rollout(model, initial_data, metadata, window_size, num_steps, devic
         if "temp_std" in metadata and "temp_mean" in metadata:
             temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
             temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
-            
-            # Scale temperature change by dt
-            if dt != 1.0:
-                temp_mean = temp_mean / dt
-                temp_std = temp_std / dt
                 
             temp_pred = temp_pred * torch.sqrt(temp_std**2 + noise_std**2) + temp_mean
         

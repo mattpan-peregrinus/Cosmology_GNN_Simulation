@@ -200,10 +200,6 @@ def rollout(model, data, metadata, noise_std):
         acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
         acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
         
-        # Only scale by dt if not 1.0 
-        if dt != 1.0:
-            acc_mean = acc_mean / (dt*dt)
-            acc_std = acc_std / (dt*dt)
         acc_pred = acc_pred * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
         
         # Un-normalize temperature
@@ -211,9 +207,6 @@ def rollout(model, data, metadata, noise_std):
             temp_std = torch.tensor(metadata.get("temp_change_std", metadata["temp_std"]), dtype=torch.float32)
             temp_mean = torch.tensor(metadata.get("temp_change_mean", 0.0), dtype=torch.float32)
             
-            if dt != 1.0:
-                temp_mean = temp_mean / dt
-                temp_std = temp_std / dt
             temp_pred = temp_pred * torch.sqrt(temp_std**2 + noise_std**2) + temp_mean
         
         # PHYSICS INTEGRATION !!!
@@ -342,7 +335,8 @@ def train():
             for i in range(len(batch["input"]["Coordinates"])):
                 input_coords = batch["input"]["Coordinates"][i] 
                 target_coords = batch["target"]["Coordinates"][i] 
-                temperature_seq = batch["input"]["InternalEnergy"][i]  
+                temperature_seq = batch["input"]["InternalEnergy"][i]
+                target_temperature = batch["target"]["InternalEnergy"][i]  
                 
                 batch_dt = batch["input"].get("dt", [dt])[i] if "dt" in batch["input"] else dt
                 batch_box_size = batch["input"].get("box_size", [box_size])[i] if "box_size" in batch["input"] else box_size
@@ -355,7 +349,7 @@ def train():
                     noise_std=args.noise_std,
                     num_neighbors=args.num_neighbors,
                     temperature_seq=temperature_seq,
-                    target_temperature=batch["target"]["InternalEnergy"][i],
+                    target_temperature=target_temperature,
                     dt=batch_dt,
                     box_size=batch_box_size
                 )
