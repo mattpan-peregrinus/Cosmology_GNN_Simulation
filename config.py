@@ -51,12 +51,6 @@ def get_config():
     with open(args.metadata_path, 'r') as f:
         args.metadata = json.load(f)
         
-    # Override metadata values with command line args if provided
-    if args.dt != 1.0 and 'dt' in args.metadata:
-        args.metadata['dt'] = args.dt
-    if args.box_size is not None and 'box_size' in args.metadata:
-        args.metadata['box_size'] = args.box_size
-        
     import numpy as np
     import random 
     torch.manual_seed(args.seed)

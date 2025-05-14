@@ -113,10 +113,6 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     # Node-level features
     vel_mean = torch.tensor(metadata["vel_mean"], dtype=torch.float32)
     vel_std = torch.tensor(metadata["vel_std"], dtype=torch.float32)
-    
-    if dt != 1.0:
-        vel_mean = vel_mean / dt
-        vel_std = vel_std / dt
         
     normal_velocity_seq = (velocity_seq - vel_mean) / torch.sqrt(vel_std**2 + noise_std**2)
     boundary = torch.tensor(metadata["bounds"], dtype=torch.float32)
@@ -202,11 +198,6 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
         # Normalize acceleration
         acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
         acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
-        
-        # Scale acceleration statistics if dt is not 1.0
-        if dt != 1.0:
-            acc_mean = acc_mean / (dt*dt)  # a = dv/dt, and v = dx/dt, so a = d²x/dt²
-            acc_std = acc_std / (dt*dt)
             
         acceleration = (acceleration - acc_mean) / torch.sqrt(acc_std**2 + noise_std**2)
     
