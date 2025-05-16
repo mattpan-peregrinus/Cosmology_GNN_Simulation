@@ -14,10 +14,6 @@ def get_config():
     parser.add_argument('--num_neighbors', type=int, default=16, help='Number of nearest neighbors to consider for each node')
     parser.add_argument('--batch_size', type=int, default=2, help='Batch size for training')
     
-    # Physics args
-    parser.add_argument('--dt', type=float, default=1.0, help='Time step size for physics calculations')
-    parser.add_argument('--box_size', type=float, default=None, help='Size of the simulation box')
-    
     # Training / hardware args 
     parser.add_argument('--window_size', type=int, default=5, help='Number of time steps to use for input sequence')
     parser.add_argument('--latent_size', type=int, default=128, help='Size of latent representations')

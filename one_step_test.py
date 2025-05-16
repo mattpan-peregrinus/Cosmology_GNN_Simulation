@@ -60,7 +60,6 @@ def validate_one_step(model, data_path, metadata, window_size, device, num_neigh
             
             # Create graph
             graph = preprocess(
-                particle_type=None,
                 position_seq=coords_seq,
                 target_position=None,  
                 metadata=metadata,

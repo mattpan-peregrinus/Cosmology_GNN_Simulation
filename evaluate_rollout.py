@@ -69,7 +69,6 @@ def perform_rollout(model, initial_data, metadata, window_size, num_steps, devic
         
         # Create graph
         graph = preprocess(
-            particle_type=None,
             position_seq=window_coords,
             target_position=None,  # No target for prediction
             metadata=metadata,
