@@ -38,11 +38,13 @@ class SequenceDataset(Dataset):
             if "BoxSize" in f.attrs:
                 self.box_size = f.attrs["BoxSize"]
             else:
+                print("No BoxSize in dataset!!!")
                 self.box_size = 2.0
                 
             if "TimeStep" in f.attrs:
                 self.dt = f.attrs["TimeStep"]
             else:
+                print("No TimeStep in dataset!!!")
                 self.dt = 1.0
 
         self.norms = norms
