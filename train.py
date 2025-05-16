@@ -15,6 +15,8 @@ from data_utils import preprocess
 from graph_network import EncodeProcessDecode  
 from validation_utils import get_train_val_datasets
 from validation import validate
+import h5py
+import matplotlib.pyplot as plt
 
 def plot_losses(train_losses, val_losses, output_path, component_losses=None):
     # Create figure with subplots
@@ -66,30 +68,29 @@ def plot_losses(train_losses, val_losses, output_path, component_losses=None):
     plt.close()
     
 def plot_rollout_relative_error(model, test_data_path, metadata, output_path, window_size=5, num_steps=100, device='cpu', clip_value=1000):
-    import h5py
-    from evaluate_rollout import perform_rollout
     
-    # Load test data 
     with h5py.File(test_data_path, 'r') as f:
+        dt = f.attrs["TimeStep"]
+        box_size = f.attrs["BoxSize"]
+        print(f"Using dataset parameters: dt={dt}, box_size={box_size}")
+        
         ground_truth = {
             "Coordinates": torch.tensor(f["Coordinates"][:], dtype=torch.float32),
+            "InternalEnergy": torch.tensor(f["InternalEnergy"][:], dtype=torch.float32)
         }
-        if "InternalEnergy" in f:
-            internal_energy = torch.tensor(f["InternalEnergy"][:], dtype=torch.float32)
-            if len(internal_energy.shape) == 2:
-                internal_energy = internal_energy.unsqueeze(-1)
-            ground_truth["InternalEnergy"] = internal_energy
-
+        # Is this necessary? 
+        if len(ground_truth["InternalEnergy"].shape) == 2:
+            ground_truth["InternalEnergy"] = ground_truth["InternalEnergy"].unsqueeze(-1)
+        
     # Perform rollout
     print("Performing rollout for relative error calculation...")
-    rollout_data = perform_rollout(
+    rollout_data = rollout(
         model=model,
-        initial_data=ground_truth,
+        data=ground_truth,
         metadata=metadata,
-        window_size=window_size,
-        num_steps=num_steps,
-        device=device,
-        num_neighbors=16
+        noise_std=0.0,  # set noise std to 0 for rollout
+        dt=dt,
+        box_size=box_size
     )
     
     # Calculate relative errors over time
@@ -111,22 +112,24 @@ def plot_rollout_relative_error(model, test_data_path, metadata, output_path, wi
         # For coordinates (position)
         rel_err = (pred_coords[t] - true_coords[t]) / (torch.abs(true_coords[t]) + epsilon)
         # Calculate absolute relative error and clip extreme values
-        rel_err_mean = torch.mean(torch.abs(rel_err)).item() * 100  # Convert to percentage
-        rel_err_mean = min(rel_err_mean, clip_value)  # Clip extreme values
+        rel_err_mean = torch.mean(torch.abs(rel_err)).item() * 100  
+        rel_err_mean = min(rel_err_mean, clip_value)  
         coord_rel_errors.append(rel_err_mean)
         
         # For temperature
         true_temp = true_temps[t]
+        # check if this is necessary 
         if len(true_temp.shape) == 1:
             true_temp = true_temp.unsqueeze(-1)
             
         pred_temp = pred_temps[t]
+        # this too
         if len(pred_temp.shape) == 1:
             pred_temp = pred_temp.unsqueeze(-1)
             
         temp_rel_err = (pred_temp - true_temp) / (torch.abs(true_temp) + epsilon)
         temp_rel_err_mean = torch.mean(torch.abs(temp_rel_err)).item() * 100
-        temp_rel_err_mean = min(temp_rel_err_mean, clip_value)  # Clip extreme values
+        temp_rel_err_mean = min(temp_rel_err_mean, clip_value)  
         temp_rel_errors.append(temp_rel_err_mean)
     
     # Plot relative errors over time
@@ -148,25 +151,23 @@ def plot_rollout_relative_error(model, test_data_path, metadata, output_path, wi
     
     print(f"Relative error plot saved to {output_path}")
 
-
 def rollout(model, data, metadata, noise_std, dt, box_size):
     device = next(model.parameters()).device
     model.eval()
     window_size = 6  
 
     total_time = data["Coordinates"].size(0)
-    position_traj = data["Coordinates"][:window_size].permute(1, 0, 2).float() # what does this mean
+    position_traj = data["Coordinates"][:window_size].permute(1, 0, 2).float() # -> [num_particles, window_size, 3]
+    temp_traj = data["InternalEnergy"][:window_size].permute(1, 0, 2).float() # -> [num_particles, window_size, 1]
     
-    temp_traj = data["InternalEnergy"][:window_size].permute(1, 0, 2).float() # what does this mean
-    
-    # Should debug to check if this is even necessary 
+    # Not necessary? If temp_traj is [num_particles, window_size], add a dimension.
     if len(temp_traj.shape) == 2:
-        temp_traj = temp_traj.unsqueeze(-1) # what does this mean 
+        temp_traj = temp_traj.unsqueeze(-1) 
 
     for time in range(total_time - window_size):
         # Build a graph with no noise for rollout
-        input_positions = position_traj[:, -window_size:].permute(1, 0, 2) # what does this mean 
-        input_temps = temp_traj[:, -window_size:].permute(1, 0, 2) # what does this mean 
+        input_positions = position_traj[:, -window_size:].permute(1, 0, 2) # -> [window_size, num_particles, 3]
+        input_temps = temp_traj[:, -window_size:].permute(1, 0, 2) # -> [window_size, num_particles, 1]
         
         graph = preprocess(
             position_seq=input_positions, 
@@ -192,8 +193,8 @@ def rollout(model, data, metadata, noise_std, dt, box_size):
         acc_pred = acc_pred * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
         
         # Un-normalize temperature
-        temp_std = torch.tensor(metadata.get("temp_change_std", metadata["temp_std"]), dtype=torch.float32)
-        temp_mean = torch.tensor(metadata.get("temp_change_mean", 0.0), dtype=torch.float32)
+        temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
+        temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
         temp_pred = temp_pred * torch.sqrt(temp_std**2 + noise_std**2) + temp_mean
         
         # PHYSICS INTEGRATION !!!
@@ -206,14 +207,13 @@ def rollout(model, data, metadata, noise_std, dt, box_size):
         new_position = recent_position + new_velocity * dt
         new_temp = recent_temp + temp_pred * dt
         
-        position_traj = torch.cat((position_traj, new_position.unsqueeze(1)), dim=1)
-        temp_traj = torch.cat((temp_traj, new_temp.unsqueeze(1)), dim=1)
+        position_traj = torch.cat((position_traj, new_position.unsqueeze(1)), dim=1) # -> [num_particles, time_steps + 1, 3]
+        temp_traj = torch.cat((temp_traj, new_temp.unsqueeze(1)), dim=1) # -> [num_particles, time_steps + 1, 1]
         
     return {
-        "Coordinates": position_traj.permute(1, 0, 2), # what does this mean 
-        "InternalEnergy": temp_traj.permute(1, 0, 2) # what does this mean 
-    }
-    
+        "Coordinates": position_traj.permute(1, 0, 2), # -> [total_time_steps, num_particles, 3]
+        "InternalEnergy": temp_traj.permute(1, 0, 2) # -> [total_time_steps, num_particles, 1]
+    }   
 
 def load_pretrained_model(model, model_path):
     try:
@@ -464,8 +464,6 @@ def train():
         print("\nNo test data path provided. Skipping relative error plot.")
     
     return simulator
-    
-    
     
 if __name__ == "__main__":
     train()
