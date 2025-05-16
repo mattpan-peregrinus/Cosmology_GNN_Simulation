@@ -163,7 +163,6 @@ def evaluate_against_ground_truth(rollout_data, ground_truth, window_size):
         "mean_temp_error": np.mean(temp_errors) if temp_errors else None
     }
     
-
 def main():
     parser = argparse.ArgumentParser(description='Perform model rollout evaluation')
     
