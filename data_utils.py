@@ -44,7 +44,7 @@ def generate_noise(position_seq, noise_std):
     return position_noise
 
 
-def preprocess(particle_type, position_seq, target_position, metadata, noise_std, num_neighbors, temperature_seq, target_temperature=None, box_size=None, dt=1.0):
+def preprocess(position_seq, target_position, metadata, noise_std, num_neighbors, temperature_seq, target_temperature=None, box_size=None, dt=1.0):
     """Preprocess a trajectory and construct a PyG Data object with both position and temperature target."""
     position_seq = position_seq.float()
     if target_position is not None:
@@ -148,17 +148,6 @@ def preprocess(particle_type, position_seq, target_position, metadata, noise_std
     # Flatten features for input to the model
     flat_velocity = normal_velocity_seq.reshape(normal_velocity_seq.size(0), -1)
     flat_temperature = normal_temp_seq.reshape(normal_temp_seq.size(0), -1)
-            
-    # Create node features (including dt information)
-    if particle_type is None:
-        node_features = torch.cat((
-            flat_velocity, 
-            flat_temperature, 
-            normalized_position,
-        ), dim=-1)
-    else:
-        node_features = particle_type.float32
-        
         
     # Edge-level features
     senders = edge_index[0]

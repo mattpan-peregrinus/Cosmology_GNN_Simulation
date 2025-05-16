@@ -36,7 +36,8 @@ def generate_metadata(dataset_path, output_path):
             "acc_mean": acc_mean.tolist(),
             "acc_std": acc_std.tolist(),
             "bounds": bounds.tolist(),
-            "box_size": box_size.tolist()
+            "box_size": box_size.tolist(),
+            "dt": dt.tolist()
         }
 
         with open(output_path, "w") as f:

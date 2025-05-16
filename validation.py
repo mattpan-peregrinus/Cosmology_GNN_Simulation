@@ -2,17 +2,12 @@ import torch
 import torch_geometric as pyg
 from data_utils import preprocess
 
-def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weight, metadata, noise_std, num_neighbors):
+def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weight, metadata, noise_std, num_neighbors, dt, box_size):
     model.eval()  
     total_loss = 0.0
     acc_loss_total = 0.0
     temp_loss_total = 0.0
     count = 0
-    
-    dt = metadata.get('dt', 1.0)
-    box_size = metadata.get('box_size')
-    if isinstance(box_size, list) and box_size:
-        box_size = float(box_size[0])
     
     with torch.no_grad():  
         for batch in val_loader:
@@ -25,22 +20,19 @@ def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weig
             for i in range(len(batch["input"]["Coordinates"])):
                 input_coords = batch["input"]["Coordinates"][i]
                 target_coords = batch["target"]["Coordinates"][i]
-                temperature_seq = batch["input"]["InternalEnergy"][i]
-                
-                batch_dt = batch["input"].get("dt", [dt])[i] if "dt" in batch["input"] else dt
-                batch_box_size = batch["input"].get("box_size", [box_size])[i] if "box_size" in batch["input"] else box_size
+                input_temperature = batch["input"]["InternalEnergy"][i]
+                target_temperature = batch["target"]["InternalEnergy"][i]
                 
                 graph = preprocess(
-                    particle_type=None,
                     position_seq=input_coords,
                     target_position=target_coords,
                     metadata=metadata,
                     noise_std=noise_std,
                     num_neighbors=num_neighbors,
-                    temperature_seq=temperature_seq,
-                    target_temperature=batch["target"]["InternalEnergy"][i],
+                    temperature_seq=input_temperature,
+                    target_temperature=target_temperature,
                     dt=dt,
-                    box_size=batch_box_size
+                    box_size=box_size
                 )
                 graphs.append(graph)
             
@@ -54,18 +46,8 @@ def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weig
             acc_pred = predictions['acceleration']
             temp_pred = predictions['temperature']
             
-            # Check if the attributes exist before computing loss
-            if hasattr(batch_graph, 'y_acc') and batch_graph.y_acc is not None:
-                acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
-            else:
-                print("Warning: y_acc not found in validation graph")
-                acc_loss = torch.tensor(0.0, device=device)
-                
-            if hasattr(batch_graph, 'y_temp') and batch_graph.y_temp is not None:
-                temp_loss = loss_fn(temp_pred, batch_graph.y_temp)
-            else:
-                print("Warning: y_temp not found in validation graph")
-                temp_loss = torch.tensor(0.0, device=device)
+            acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
+            temp_loss = loss_fn(temp_pred, batch_graph.y_temp)
             
             combined_loss = acc_loss_weight * acc_loss + temp_loss_weight * temp_loss
             

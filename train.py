@@ -149,37 +149,26 @@ def plot_rollout_relative_error(model, test_data_path, metadata, output_path, wi
     print(f"Relative error plot saved to {output_path}")
 
 
-def rollout(model, data, metadata, noise_std):
+def rollout(model, data, metadata, noise_std, dt, box_size):
     device = next(model.parameters()).device
     model.eval()
     window_size = 6  
 
-    dt = metadata.get('dt', 1.0)  # Default to 1.0 if not specified
-    box_size = metadata.get('box_size')
-    if isinstance(box_size, list) and box_size:
-        box_size = float(box_size[0])
-
     total_time = data["Coordinates"].size(0)
-    traj = data["Coordinates"][:window_size].permute(1, 0, 2).float()
+    position_traj = data["Coordinates"][:window_size].permute(1, 0, 2).float() # what does this mean
     
-    if "InternalEnergy" in data:
-        temp_traj = data["InternalEnergy"][:window_size].permute(1, 0, 2).float()
-        if len(temp_traj.shape) == 2:
-            temp_traj = temp_traj.unsqueeze(-1)
-    else:
-        # Create dummy temperature data if needed
-        temp_traj = torch.zeros_like(traj[:, :, :1])
-        
-    particle_type = None
+    temp_traj = data["InternalEnergy"][:window_size].permute(1, 0, 2).float() # what does this mean
+    
+    # Should debug to check if this is even necessary 
+    if len(temp_traj.shape) == 2:
+        temp_traj = temp_traj.unsqueeze(-1) # what does this mean 
 
     for time in range(total_time - window_size):
         # Build a graph with no noise for rollout
-        from data_utils import preprocess
-        input_positions = traj[:, -window_size:].permute(1, 0, 2)
-        input_temps = temp_traj[:, -window_size:].permute(1, 0, 2)
+        input_positions = position_traj[:, -window_size:].permute(1, 0, 2) # what does this mean 
+        input_temps = temp_traj[:, -window_size:].permute(1, 0, 2) # what does this mean 
         
         graph = preprocess(
-            particle_type=particle_type, 
             position_seq=input_positions, 
             target_position=None, 
             metadata=metadata, 
@@ -203,15 +192,13 @@ def rollout(model, data, metadata, noise_std):
         acc_pred = acc_pred * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
         
         # Un-normalize temperature
-        if "temp_std" in metadata and "temp_mean" in metadata:
-            temp_std = torch.tensor(metadata.get("temp_change_std", metadata["temp_std"]), dtype=torch.float32)
-            temp_mean = torch.tensor(metadata.get("temp_change_mean", 0.0), dtype=torch.float32)
-            
-            temp_pred = temp_pred * torch.sqrt(temp_std**2 + noise_std**2) + temp_mean
+        temp_std = torch.tensor(metadata.get("temp_change_std", metadata["temp_std"]), dtype=torch.float32)
+        temp_mean = torch.tensor(metadata.get("temp_change_mean", 0.0), dtype=torch.float32)
+        temp_pred = temp_pred * torch.sqrt(temp_std**2 + noise_std**2) + temp_mean
         
         # PHYSICS INTEGRATION !!!
-        recent_position = traj[:, -1]
-        recent_velocity = (recent_position - traj[:, -2]) / dt
+        recent_position = position_traj[:, -1]
+        recent_velocity = (recent_position - position_traj[:, -2]) / dt
         recent_temp = temp_traj[:, -1]
         
         # Correct integration with dt
@@ -219,12 +206,12 @@ def rollout(model, data, metadata, noise_std):
         new_position = recent_position + new_velocity * dt
         new_temp = recent_temp + temp_pred * dt
         
-        traj = torch.cat((traj, new_position.unsqueeze(1)), dim=1)
+        position_traj = torch.cat((position_traj, new_position.unsqueeze(1)), dim=1)
         temp_traj = torch.cat((temp_traj, new_temp.unsqueeze(1)), dim=1)
         
     return {
-        "Coordinates": traj.permute(1, 0, 2),
-        "InternalEnergy": temp_traj.permute(1, 0, 2)
+        "Coordinates": position_traj.permute(1, 0, 2), # what does this mean 
+        "InternalEnergy": temp_traj.permute(1, 0, 2) # what does this mean 
     }
     
 
@@ -244,21 +231,6 @@ def train():
     plots_dir = os.path.join(args.output_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
     
-    dt = getattr(args, 'dt', 1.0)
-    box_size = getattr(args, 'box_size', None)
-    
-    # If not  provided in args, check metadata
-    if box_size is None and 'box_size' in args.metadata:
-        box_size = args.metadata['box_size']
-        if isinstance(box_size, list):
-            box_size = float(box_size[0])
-    
-    if dt == 1.0 and 'dt' in args.metadata:
-        dt = args.metadata['dt']
-        
-    print(f"Using time step (dt): {dt}")
-    print(f"Using box size: {box_size}")
-    
     train_dataset, val_dataset = get_train_val_datasets(
         data_path=args.dataset_path,
         window_size=args.window_size,
@@ -267,6 +239,12 @@ def train():
         augment_prob=args.augment_prob,
         seed=args.seed
     )
+    
+    # Use dt and box_size directly from the dataset 
+    dt = train_dataset.dt
+    box_size = train_dataset.box_size
+    print(f"Using time step (dt): {dt}")
+    print(f"Using box size: {box_size}")
 
     # Create data loader
     train_loader = DataLoader(
@@ -338,11 +316,7 @@ def train():
                 input_temperature = batch["input"]["InternalEnergy"][i]
                 target_temperature = batch["target"]["InternalEnergy"][i]  
                 
-                batch_dt = batch["input"].get("dt", [dt])[i] if "dt" in batch["input"] else dt
-                batch_box_size = batch["input"].get("box_size", [box_size])[i] if "box_size" in batch["input"] else box_size
-                
                 graph = preprocess(
-                    particle_type=None,
                     position_seq=input_coords,
                     target_position=target_coords,
                     metadata=args.metadata,
@@ -350,8 +324,8 @@ def train():
                     num_neighbors=args.num_neighbors,
                     temperature_seq=input_temperature,
                     target_temperature=target_temperature,
-                    dt=batch_dt,
-                    box_size=batch_box_size
+                    dt=dt,
+                    box_size=box_size
                 )
                 graphs.append(graph)
             
@@ -364,16 +338,7 @@ def train():
             temp_pred = predictions['temperature']
             
             acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
-            
-            if hasattr(batch_graph, 'y_temp') and batch_graph.y_temp is not None:
-                if temp_pred.shape != batch_graph.y_temp.shape:
-                    print(f"Shape mismatch in loss: temp_pred {temp_pred.shape}, y_temp {batch_graph.y_temp.shape}")
-                    temp_loss = loss_fn(temp_pred.view(batch_graph.y_temp.shape), batch_graph.y_temp)
-                else:
-                    temp_loss = loss_fn(temp_pred, batch_graph.y_temp)
-            else:
-                temp_loss = torch.tensor(0.0, device=device)
-            
+            temp_loss = loss_fn(temp_pred, batch_graph.y_temp)
             combined_loss = args.acc_loss_weight * acc_loss + args.temp_loss_weight * temp_loss
 
             # Backward pass
@@ -404,9 +369,17 @@ def train():
         component_losses['temperature']['train'].append(avg_temp_train_loss)
         
         val_loss, val_component_losses = validate(
-            simulator, val_loader, device, loss_fn, 
-            args.acc_loss_weight, args.temp_loss_weight, 
-            args.metadata, 0, args.num_neighbors
+            simulator, 
+            val_loader, 
+            device, 
+            loss_fn, 
+            args.acc_loss_weight, 
+            args.temp_loss_weight, 
+            args.metadata, 
+            0,  #setting noise sd to zero, for now
+            args.num_neighbors,
+            dt = dt,
+            box_size = box_size
         )
         
         val_losses.append(val_loss)
@@ -485,7 +458,7 @@ def train():
             window_size=args.window_size,
             num_steps=100,  
             device=device,
-            clip_value=1000,  # Limit extreme values
+            clip_value=1000,
         )
     else:
         print("\nNo test data path provided. Skipping relative error plot.")
