@@ -2,11 +2,11 @@ import torch
 import torch_geometric as pyg
 from data_utils import preprocess
 
-def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weight, metadata, noise_std, num_neighbors, dt, box_size):
+def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_rate_loss_weight, metadata, noise_std, num_neighbors, dt, box_size):
     model.eval()  
     total_loss = 0.0
     acc_loss_total = 0.0
-    temp_loss_total = 0.0
+    temp_rate_loss_total = 0.0
     count = 0
     
     with torch.no_grad():  
@@ -26,11 +26,11 @@ def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weig
                 graph = preprocess(
                     position_seq=input_coords,
                     target_position=target_coords,
+                    temperature_seq=input_temperature,
+                    target_temperature=target_temperature,
                     metadata=metadata,
                     noise_std=noise_std,
                     num_neighbors=num_neighbors,
-                    temperature_seq=input_temperature,
-                    target_temperature=target_temperature,
                     dt=dt,
                     box_size=box_size
                 )
@@ -44,27 +44,27 @@ def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_loss_weig
             # Forward pass
             predictions = model(batch_graph)
             acc_pred = predictions['acceleration']
-            temp_pred = predictions['temperature']
+            temp_rate_pred = predictions['temp_rate']
             
             acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
-            temp_loss = loss_fn(temp_pred, batch_graph.y_temp)
+            temp_rate_loss = loss_fn(temp_rate_pred, batch_graph.y_temp_rate)
             
-            combined_loss = acc_loss_weight * acc_loss + temp_loss_weight * temp_loss
+            combined_loss = acc_loss_weight * acc_loss + temp_rate_loss_weight * temp_rate_loss
             
             total_loss += combined_loss.item()
             acc_loss_total += acc_loss.item()
-            temp_loss_total += temp_loss.item()
+            temp_rate_loss_total += temp_rate_loss.item()
             count += 1
     
     # Calculate averages
     avg_val_loss = total_loss / count if count > 0 else float('inf')
     avg_acc_loss = acc_loss_total / count if count > 0 else float('inf')
-    avg_temp_loss = temp_loss_total / count if count > 0 else float('inf')
+    avg_temp_rate_loss = temp_rate_loss_total / count if count > 0 else float('inf')
     
     # Return both the overall loss and component losses
     component_losses = {
         'acceleration': avg_acc_loss,
-        'temperature': avg_temp_loss
+        'temp_rate': avg_temp_rate_loss
     }
     
     return avg_val_loss, component_losses

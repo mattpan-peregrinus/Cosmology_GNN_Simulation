@@ -54,10 +54,10 @@ def plot_losses(train_losses, val_losses, output_path, component_losses=None):
         ax2.grid(True, linestyle='--', alpha=0.7)
         ax2.legend(fontsize=10)
         
-        # Temperature loss
-        ax3.plot(epochs, component_losses['temperature']['train'], 'b-', linewidth=2, label='Train')
-        ax3.plot(epochs, component_losses['temperature']['val'], 'r-', linewidth=2, label='Validation')
-        ax3.set_title('Temperature Loss', fontsize=14)
+        # Temperature_rate loss
+        ax3.plot(epochs, component_losses['temp_rate']['train'], 'b-', linewidth=2, label='Train')
+        ax3.plot(epochs, component_losses['temp_rate']['val'], 'r-', linewidth=2, label='Validation')
+        ax3.set_title('Temperature_Rate Loss', fontsize=14)
         ax3.set_xlabel('Epoch', fontsize=12)
         ax3.set_ylabel('Loss (MSE)', fontsize=12)
         ax3.grid(True, linestyle='--', alpha=0.7)
@@ -171,20 +171,19 @@ def rollout(model, data, metadata, noise_std, dt, box_size):
         
         graph = preprocess(
             position_seq=input_positions, 
-            target_position=None, 
+            temperature_seq=input_temps,
             metadata=metadata, 
             noise_std=0.0, 
             num_neighbors=16, 
-            temperature_seq=input_temps,
             box_size=box_size,
             dt=dt
         )
         graph = graph.to(device)
 
-        # Predict acceleration and temperature change
+        # Predict acceleration and temperature rate
         predictions = model(graph)
         acc_pred = predictions['acceleration'].cpu()
-        temp_rate_pred = predictions['temperature'].cpu()
+        temp_rate_pred = predictions['temp_rate'].cpu()
 
         # Un-normalize acceleration
         acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
@@ -192,10 +191,10 @@ def rollout(model, data, metadata, noise_std, dt, box_size):
         
         acc_pred = acc_pred * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
         
-        # Un-normalize temperature
-        temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
-        temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
-        temp_rate_pred = temp_rate_pred * torch.sqrt(temp_std**2 + noise_std**2) + temp_mean
+        # Un-normalize temperature rate
+        temp_rate_std = torch.tensor(metadata["temp_rate_std"], dtype=torch.float32)
+        temp_rate_mean = torch.tensor(metadata["temp_rate_mean"], dtype=torch.float32)
+        temp_rate_pred = temp_rate_pred * torch.sqrt(temp_rate_std**2 + noise_std**2) + temp_rate_mean
         
         # PHYSICS INTEGRATION !!!
         recent_position = position_traj[:, -1]
@@ -205,6 +204,7 @@ def rollout(model, data, metadata, noise_std, dt, box_size):
         # Correct integration with dt
         new_velocity = recent_velocity + acc_pred * dt
         new_position = recent_position + new_velocity * dt
+        # Perform modulo by box_size to keep particles within the box
         new_temp = recent_temp + temp_rate_pred * dt
         
         position_traj = torch.cat((position_traj, new_position.unsqueeze(1)), dim=1) # -> [num_particles, time_steps + 1, 3]
@@ -286,7 +286,7 @@ def train():
     val_losses = []
     component_losses = {
         'acceleration': {'train': [], 'val': []},
-        'temperature': {'train': [], 'val': []}
+        'temp_rate': {'train': [], 'val': []}
     }
     
     best_val_loss = float('inf')
@@ -299,7 +299,7 @@ def train():
         bar = tqdm(train_loader, desc=f"Epoch {epoch}")
         total_loss = 0.0
         acc_loss_total = 0.0
-        temp_loss_total = 0.0
+        temp_rate_loss_total = 0.0
         count = 0
 
         for batch in bar:
@@ -319,11 +319,11 @@ def train():
                 graph = preprocess(
                     position_seq=input_coords,
                     target_position=target_coords,
+                    temperature_seq=input_temperature,
+                    target_temperature=target_temperature,
                     metadata=args.metadata,
                     noise_std=args.noise_std,
                     num_neighbors=args.num_neighbors,
-                    temperature_seq=input_temperature,
-                    target_temperature=target_temperature,
                     dt=dt,
                     box_size=box_size
                 )
@@ -335,11 +335,11 @@ def train():
             # Forward pass
             predictions = simulator(batch_graph)
             acc_pred = predictions['acceleration']
-            temp_pred = predictions['temperature']
+            temp_rate_pred = predictions['temp_rate']
             
             acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
-            temp_loss = loss_fn(temp_pred, batch_graph.y_temp)
-            combined_loss = args.acc_loss_weight * acc_loss + args.temp_loss_weight * temp_loss
+            temp_rate_loss = loss_fn(temp_rate_pred, batch_graph.y_temp_rate)
+            combined_loss = args.acc_loss_weight * acc_loss + args.temp_rate_loss_weight * temp_rate_loss
 
             # Backward pass
             optimizer.zero_grad()
@@ -348,25 +348,25 @@ def train():
             
             total_loss += combined_loss.item()
             acc_loss_total += acc_loss.item()
-            temp_loss_total += temp_loss.item()
+            temp_rate_loss_total += temp_rate_loss.item()
             count += 1
             
             bar.set_postfix({
             "loss": combined_loss.item(), 
             "avg_loss": total_loss / count,
             "acc_loss": acc_loss.item(),
-            "temp_loss": temp_loss.item()
+            "temp_rate_loss": temp_rate_loss.item()
             })
             
             global_step += 1
         
         avg_train_loss = total_loss / count if count > 0 else float('inf')
         avg_acc_train_loss = acc_loss_total / count if count > 0 else float('inf')
-        avg_temp_train_loss = temp_loss_total / count if count > 0 else float('inf')
+        avg_temp_rate_train_loss = temp_rate_loss_total / count if count > 0 else float('inf')
         
         train_losses.append(avg_train_loss)
         component_losses['acceleration']['train'].append(avg_acc_train_loss)
-        component_losses['temperature']['train'].append(avg_temp_train_loss)
+        component_losses['temp_rate']['train'].append(avg_temp_rate_train_loss)
         
         val_loss, val_component_losses = validate(
             simulator, 
@@ -374,7 +374,7 @@ def train():
             device, 
             loss_fn, 
             args.acc_loss_weight, 
-            args.temp_loss_weight, 
+            args.temp_rate_loss_weight, 
             args.metadata, 
             0,  #setting noise sd to zero, for now
             args.num_neighbors,
@@ -384,15 +384,15 @@ def train():
         
         val_losses.append(val_loss)
         component_losses['acceleration']['val'].append(val_component_losses['acceleration'])
-        component_losses['temperature']['val'].append(val_component_losses['temperature'])
+        component_losses['temp_rate']['val'].append(val_component_losses['temp_rate'])
         
         print(f"Epoch {epoch}: "
               f"training loss = {avg_train_loss:.6f}, "
               f"validation loss = {val_loss:.6f}, "
               f"train acc loss = {avg_acc_train_loss:.6f}, "
               f"val acc loss = {val_component_losses['acceleration']:.6f}, "
-              f"train temp loss = {avg_temp_train_loss:.6f}, "
-              f"val temp loss = {val_component_losses['temperature']:.6f}")
+              f"train temp_rate loss = {avg_temp_rate_train_loss:.6f}, "
+              f"val temp_rate loss = {val_component_losses['temp_rate']:.6f}")
         
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -438,8 +438,8 @@ def train():
         'component_losses': {
             'acc_train': component_losses['acceleration']['train'],
             'acc_val': component_losses['acceleration']['val'],
-            'temp_train': component_losses['temperature']['train'],
-            'temp_val': component_losses['temperature']['val']
+            'temp_rate_train': component_losses['temp_rate']['train'],
+            'temp_rate_val': component_losses['temp_rate']['val']
         },
         'best_epoch': best_epoch,
         'best_val_loss': best_val_loss,
