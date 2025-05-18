@@ -11,10 +11,16 @@ def generate_metadata(dataset_path, output_path):
         velocities = f['Velocities'][:]
         accelerations = f['HydroAcceleration'][:]
         coordinates = f['Coordinates'][:]
-        internal_energy = f['InternalEnergy'][:] 
+        internal_energy = f['InternalEnergy'][:]
+        box_size = f['BoxSize'][:]
+        dt = f['TimeStep'][:]
 
         temp_mean = np.mean(internal_energy, axis=(0, 1))
         temp_std = np.std(internal_energy, axis=(0, 1))
+
+        temp_rate = (internal_energy[:,1:] - internal_energy[:,:-1]) / dt
+        temp_rate_mean = np.mean(temp_rate, axis=(0, 1))
+        temp_rate_std = np.std(temp_rate, axis=(0, 1))
         
         vel_mean = np.mean(velocities, axis=(0, 1))
         vel_std = np.std(velocities, axis=(0, 1))
@@ -22,20 +28,15 @@ def generate_metadata(dataset_path, output_path):
         acc_mean = np.mean(accelerations, axis=(0, 1))
         acc_std = np.std(accelerations, axis=(0, 1))
         
-        # Manually set the box size 
-        # min_coords = np.min(coordinates, axis=(0, 1))
-        # max_coords = np.max(coordinates, axis=(0, 1))
-        bounds = np.stack([min_coords, max_coords], axis=1)
-        box_size = 2
-
         metadata = {
             "temp_mean": temp_mean.tolist(),
             "temp_std": temp_std.tolist(),
+            "temp_rate_mean": temp_rate_mean.tolist(),
+            "temp_rate_std": temp_rate_std.tolist(),
             "vel_mean": vel_mean.tolist(),
             "vel_std": vel_std.tolist(),
             "acc_mean": acc_mean.tolist(),
             "acc_std": acc_std.tolist(),
-            "bounds": bounds.tolist(),
             "box_size": box_size.tolist(),
             "dt": dt.tolist()
         }

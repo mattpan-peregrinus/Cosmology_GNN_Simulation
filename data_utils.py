@@ -2,6 +2,7 @@ import torch
 import torch_geometric as pyg
 from torch_geometric.nn import knn_graph
 from torch_cluster import knn
+from torch_geometric.data import Data
 import torch_scatter
 import math
 
@@ -44,8 +45,16 @@ def generate_noise(position_seq, noise_std):
     return position_noise
 
 
-def preprocess(position_seq, target_position, metadata, noise_std, num_neighbors, temperature_seq, target_temperature=None, box_size=None, dt=1.0):
+def preprocess(position_seq, temperature_seq, metadata, target_position=None, target_temperature=None, noise_std=0.0, num_neighbors=16):
     """Preprocess a trajectory and construct a PyG Data object with both position and temperature target."""
+    # Determine box size and timestep
+    box_size = metadata["box_size"]
+    if isinstance(box_size, list):
+        box_size = float(box_size[0])
+    dt = metadata["dt"]
+    if isinstance(dt, list):
+        dt = float(dt[0])
+    
     position_seq = position_seq.float()
     if target_position is not None:
         target_position = target_position.float()
@@ -61,12 +70,17 @@ def preprocess(position_seq, target_position, metadata, noise_std, num_neighbors
     position_seq = position_seq + position_noise
 
     # Compute velocities
-    recent_position = position_seq[:, -1] 
-    velocity_seq = (position_seq[:, 1:] - position_seq[:, :-1]) / dt
+    recent_position = position_seq[:, -1]
+    # Get displacements first
+    displacement_seq = position_seq[:, 1:] - position_seq[:, :-1]
+    # Correct for boundary crossings
+    displacement_seq[displacement_seq < -1*box_size/2] += box_size
+    displacement_seq[displacement_seq > box_size/2] -= box_size
+    # Divide corrected displacements by dt to get velocities
+    velocity_seq = displacement_seq / dt
 
     # Get recent temperature
     recent_temperature = temperature_seq[:, -1] 
-    temperature_history = temperature_seq[:, :-1]  
     
     if target_temperature is not None:
         target_temperature = target_temperature.float()
@@ -80,87 +94,51 @@ def preprocess(position_seq, target_position, metadata, noise_std, num_neighbors
             print(f"Shape mismatch: target_temp {target_temperature.shape} vs recent_temp {recent_temperature.shape}")
             if target_temperature.numel() == recent_temperature.numel():
                 target_temperature = target_temperature.reshape(recent_temperature.shape)
-    
-    # Determine box size 
-    if box_size is not None:
-        if isinstance(box_size, torch.Tensor):
-            actual_box_size = box_size.item() if box_size.numel() == 1 else box_size
-        else:
-            actual_box_size = box_size
-    elif "box_size" in metadata and metadata["box_size"] is not None:
-        actual_box_size = metadata["box_size"]
-        if isinstance(actual_box_size, list):
-            actual_box_size = float(actual_box_size[0])
-    else:
-        actual_box_size = None
-        
- 
-    # Construct the graph via k-nearest neighbors with periodicity if desired
-    if actual_box_size is not None:
-        extended_positions, mapping = extend_positions_torch(recent_position, actual_box_size)
-        edge_index = knn(extended_positions, recent_position, num_neighbors)
-        edge_index = torch.stack([edge_index[1], edge_index[0]], dim=0)
-        edge_index[0] = mapping[edge_index[0]]
-        edge_index[1] = mapping[edge_index[1]]
-    else:
-        # Non-periodic connectivity
-        edge_index = knn_graph(
-            recent_position,
-            k=num_neighbors,
-            loop=True
-        )
 
     # Node-level features
     vel_mean = torch.tensor(metadata["vel_mean"], dtype=torch.float32)
     vel_std = torch.tensor(metadata["vel_std"], dtype=torch.float32)
-        
     normal_velocity_seq = (velocity_seq - vel_mean) / torch.sqrt(vel_std**2 + noise_std**2)
-    boundary = torch.tensor(metadata["bounds"], dtype=torch.float32)
-    
-
-    # Normalize positions to be between [0, 1] within the simulation box
-    if len(boundary.shape) == 2 and boundary.shape[0] == 3:
-        # Boundary has shape [3, 2] where 3 is dimensions (x,y,z) and 2 is (min, max)
-        lower_bound = boundary[:, 0]  
-        upper_bound = boundary[:, 1]  
-        box_dims = upper_bound - lower_bound
-        
-        # Normalize recent position to [0, 1] range within the box
-        normalized_position = (recent_position - lower_bound) / box_dims
-    else:
-        # Fallback normalization with box_size
-        if actual_box_size is not None:
-            normalized_position = recent_position / actual_box_size
-        else:
-            # No normalization possible
-            normalized_position = recent_position
-            print("Warning: No box dimensions available for position normalization")
-    
     
     # Process temperature features
     if "temp_mean" in metadata and "temp_std" in metadata:
         temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
         temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
-        normal_temp_seq = (temperature_history - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
+        normal_temp_seq = (temperature_seq - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
     else:
-        normal_temp_seq = temperature_history
+        normal_temp_seq = temperature_seq
     
     # Flatten features for input to the model
     flat_velocity = normal_velocity_seq.reshape(normal_velocity_seq.size(0), -1)
     flat_temperature = normal_temp_seq.reshape(normal_temp_seq.size(0), -1)
         
+    # Create node features: just velocity sequency and temperature sequence
+    node_features = torch.cat((
+            flat_velocity, 
+            flat_temperature,
+        ), dim=-1)
+    
+    # Construct the graph via k-nearest neighbors with periodicity
+    extended_positions, mapping = extend_positions_torch(recent_position, box_size)
+    edge_index = knn(extended_positions, recent_position, num_neighbors)
+    edge_index = torch.stack([edge_index[1], edge_index[0]], dim=0)
+    edge_index[0] = mapping[edge_index[0]]
+    edge_index[1] = mapping[edge_index[1]]
+
     # Edge-level features
     senders = edge_index[0]
     receivers = edge_index[1]
-    
+
     assert torch.max(senders) < len(recent_position), f"Max sender index {torch.max(senders)} >= {len(recent_position)}"
     assert torch.max(receivers) < len(recent_position), f"Max receiver index {torch.max(receivers)} >= {len(recent_position)}"
 
+    # Compute displacement and distance, concatenate into the edge attribute
     edge_displacement = recent_position[senders] - recent_position[receivers]
     edge_distance = torch.norm(edge_displacement, dim=-1, keepdim=True)
+    edge_attr = torch.cat((edge_displacement, edge_distance), dim=-1)
     
     acceleration = None
-    temperature_change = None
+    temp_rate = None
 
     # Ground truth for training (acceleration)
     if target_position is not None:
@@ -171,8 +149,13 @@ def preprocess(position_seq, target_position, metadata, noise_std, num_neighbors
             target_position = target_position.reshape(-1, 3)
         
         last_velocity = velocity_seq[:, -1]  # Already scaled by dt
-        next_velocity = (target_position - recent_position) / dt  # Scale by dt
-        
+
+        # Compute the next velocity, taking into account periodicity
+        next_displacement = target_position - recent_position
+        next_displacement[next_displacement < -1*box_size/2] += box_size
+        next_displacement[next_displacement > box_size/2] -= box_size
+        next_velocity = next_displacement / dt
+                                
         # Apply noise correction
         if position_noise.dim() > 2:
             noise_term = position_noise[:, -1]
@@ -187,33 +170,32 @@ def preprocess(position_seq, target_position, metadata, noise_std, num_neighbors
         # Normalize acceleration
         acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
         acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
-            
+
         acceleration = (acceleration - acc_mean) / torch.sqrt(acc_std**2 + noise_std**2)
-    
+        
     if target_temperature is not None:
         if target_temperature.dim() == 3:
             target_temperature = target_temperature.squeeze(1)
         
         # Calculate temperature change rate (per unit time)
-        temperature_change = (target_temperature - recent_temperature) / dt
+        temp_rate = (target_temperature - recent_temperature) / dt
         
-        if "temp_mean" in metadata and "temp_std" in metadata:
+        if "temp_rate_mean" in metadata and "temp_rate_std" in metadata:
             # Scale temperature change statistics by dt
-            temp_change_mean = torch.tensor(metadata.get("temp_change_mean", 0.0), dtype=torch.float32) / dt
-            temp_change_std = torch.tensor(metadata.get("temp_change_std", metadata["temp_std"]), dtype=torch.float32) / dt
-            temperature_change = (temperature_change - temp_change_mean) / torch.sqrt(temp_change_std**2 + noise_std**2)
-            
+            temp_rate_mean = torch.tensor(metadata["temp_rate_mean"], dtype=torch.float32)
+            temp_rate_std = torch.tensor(metadata["temp_rate_std"], dtype=torch.float32)
+            temp_rate = (temp_rate - temp_rate_mean) / torch.sqrt(temp_rate_std**2 + noise_std**2)
+                
 
     # Build a PyG Data object
-    from torch_geometric.data import Data
     graph = Data(
         x=node_features.float(),
         edge_index=edge_index,
-        edge_attr=torch.cat((edge_displacement, edge_distance), dim=-1),
+        edge_attr=edge_attr,
         y_acc=acceleration.float() if acceleration is not None else None,
-        y_temp=temperature_change.float() if temperature_change is not None else None,
+        y_temp=temp_rate.float() if temp_rate is not None else None,
         pos=recent_position,
         dt=torch.tensor([dt], dtype=torch.float32),  
-        box_size=torch.tensor([actual_box_size], dtype=torch.float32) if actual_box_size is not None else None  
+        box_size=torch.tensor([box_size], dtype=torch.float32) if box_size is not None else None  
     )
     return graph
