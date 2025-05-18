@@ -32,9 +32,9 @@ def perform_rollout(model, initial_data, metadata, window_size, num_steps, devic
     """
     model.eval()
     
-    dt = metadata.get('dt', 1.0) 
+    dt = metadata.get('dt') 
     box_size = metadata.get('box_size')
-    if isinstance(box_size, list) and box_size:
+    if isinstance(box_size, list):
         box_size = float(box_size[0])
     
     # Initialize with the known data

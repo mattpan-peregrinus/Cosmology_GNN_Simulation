@@ -184,7 +184,7 @@ def rollout(model, data, metadata, noise_std, dt, box_size):
         # Predict acceleration and temperature change
         predictions = model(graph)
         acc_pred = predictions['acceleration'].cpu()
-        temp_pred = predictions['temperature'].cpu()
+        temp_rate_pred = predictions['temperature'].cpu()
 
         # Un-normalize acceleration
         acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
@@ -195,7 +195,7 @@ def rollout(model, data, metadata, noise_std, dt, box_size):
         # Un-normalize temperature
         temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
         temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
-        temp_pred = temp_pred * torch.sqrt(temp_std**2 + noise_std**2) + temp_mean
+        temp_rate_pred = temp_rate_pred * torch.sqrt(temp_std**2 + noise_std**2) + temp_mean
         
         # PHYSICS INTEGRATION !!!
         recent_position = position_traj[:, -1]
@@ -205,7 +205,7 @@ def rollout(model, data, metadata, noise_std, dt, box_size):
         # Correct integration with dt
         new_velocity = recent_velocity + acc_pred * dt
         new_position = recent_position + new_velocity * dt
-        new_temp = recent_temp + temp_pred * dt
+        new_temp = recent_temp + temp_rate_pred * dt
         
         position_traj = torch.cat((position_traj, new_position.unsqueeze(1)), dim=1) # -> [num_particles, time_steps + 1, 3]
         temp_traj = torch.cat((temp_traj, new_temp.unsqueeze(1)), dim=1) # -> [num_particles, time_steps + 1, 1]
