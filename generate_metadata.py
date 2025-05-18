@@ -12,13 +12,13 @@ def generate_metadata(dataset_path, output_path):
         accelerations = f['HydroAcceleration'][:]
         coordinates = f['Coordinates'][:]
         internal_energy = f['InternalEnergy'][:]
-        box_size = f['BoxSize'][:]
-        dt = f['TimeStep'][:]
+        box_size = f['BoxSize']
+        dt = f['TimeStep']
 
         temp_mean = np.mean(internal_energy, axis=(0, 1))
         temp_std = np.std(internal_energy, axis=(0, 1))
 
-        temp_rate = (internal_energy[:,1:] - internal_energy[:,:-1]) / dt
+        temp_rate = (internal_energy[1:] - internal_energy[:-1]) / dt
         temp_rate_mean = np.mean(temp_rate, axis=(0, 1))
         temp_rate_std = np.std(temp_rate, axis=(0, 1))
         

@@ -147,20 +147,20 @@ class EncodeProcessDecode(nn.Module):
             for _ in range(num_message_passing_steps)
         ])
 
-        # Separate decoders for acceleration and temperature. 
+        # Separate decoders for acceleration and temp_rate. 
         self.decoder_acc = build_mlp(mlp_hidden_size, mlp_num_hidden_layers, output_size)
-        self.decoder_temp = build_mlp(mlp_hidden_size, mlp_num_hidden_layers, 1)
+        self.decoder_temp_rate = build_mlp(mlp_hidden_size, mlp_num_hidden_layers, 1)
 
     def forward(self, input_graph: Data) -> torch.Tensor:
         latent_graph_0 = self._encode(input_graph)
         latent_graph_m = self._process(latent_graph_0)
         
         acc_pred = self.decoder_acc(latent_graph_m.x)
-        temp_pred = self.decoder_temp(latent_graph_m.x)
+        temp_rate_pred = self.decoder_temp_rate(latent_graph_m.x)
         
         return {
             'acceleration': acc_pred,
-            'temperature': temp_pred
+            'temp_rate': temp_rate_pred
         }
 
     def _encode(self, input_graph: Data) -> Data:

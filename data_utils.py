@@ -193,7 +193,7 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
         edge_index=edge_index,
         edge_attr=edge_attr,
         y_acc=acceleration.float() if acceleration is not None else None,
-        y_temp=temp_rate.float() if temp_rate is not None else None,
+        y_temp_rate=temp_rate.float() if temp_rate is not None else None,
         pos=recent_position,
         dt=torch.tensor([dt], dtype=torch.float32),  
         box_size=torch.tensor([box_size], dtype=torch.float32) if box_size is not None else None  
