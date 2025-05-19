@@ -197,14 +197,16 @@ def rollout(model, data, metadata, noise_std, dt, box_size):
         temp_rate_pred = temp_rate_pred * torch.sqrt(temp_rate_std**2 + noise_std**2) + temp_rate_mean
         
         # PHYSICS INTEGRATION !!!
+        # Obtain the recent values of position, velocity, temperature
         recent_position = position_traj[:, -1]
         recent_velocity = (recent_position - position_traj[:, -2]) / dt
         recent_temp = temp_traj[:, -1]
         
-        # Correct integration with dt
+        # Integrate to new values, keeping in mind periodicity for position update
         new_velocity = recent_velocity + acc_pred * dt
         new_position = recent_position + new_velocity * dt
         # Perform modulo by box_size to keep particles within the box
+        new_position = torch.remainder(new_position, box_size)
         new_temp = recent_temp + temp_rate_pred * dt
         
         position_traj = torch.cat((position_traj, new_position.unsqueeze(1)), dim=1) # -> [num_particles, time_steps + 1, 3]
