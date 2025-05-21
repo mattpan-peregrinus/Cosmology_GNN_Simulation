@@ -11,6 +11,7 @@ class SequenceDataset(Dataset):
         self,
         paths,
         window_size,
+        metadata,
         norms=None,
         augment=False,
         augment_prob=0.1,
@@ -35,17 +36,8 @@ class SequenceDataset(Dataset):
             self.num_particles = f[self.field_names[0]].shape[1]
             self.ndims = [f[field_name][:].shape[-1] for field_name in self.field_names]
             
-            if "BoxSize" in f.attrs:
-                self.box_size = f.attrs["BoxSize"]
-            else:
-                print("No BoxSize in dataset!!!")
-                self.box_size = 2.0
-                
-            if "TimeStep" in f.attrs:
-                self.dt = f.attrs["TimeStep"]
-            else:
-                print("No TimeStep in dataset!!!")
-                self.dt = 1.0
+            self.dt = metadata["dt"]
+            self.box_size = metadata["box_size"]
 
         self.norms = norms
         self.augment = augment

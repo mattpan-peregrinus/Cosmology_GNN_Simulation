@@ -28,6 +28,7 @@ def get_train_val_datasets(data_path, window_size, val_split=0.2, augment=False,
     train_dataset = SequenceDataset(
         paths=[data_path],
         window_size=window_size,
+        metadata=metadata,
         augment=augment,  
         augment_prob=augment_prob,
         start_indices=train_indices.tolist()
@@ -36,6 +37,7 @@ def get_train_val_datasets(data_path, window_size, val_split=0.2, augment=False,
     val_dataset = SequenceDataset(
         paths=[data_path],
         window_size=window_size,
+        metadata=metadata,
         augment=False, 
         start_indices=val_indices.tolist()
     )

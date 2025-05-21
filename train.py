@@ -70,8 +70,8 @@ def plot_losses(train_losses, val_losses, output_path, component_losses=None):
 def plot_rollout_relative_error(model, test_data_path, metadata, output_path, window_size=5, num_steps=100, device='cpu', clip_value=1000):
     
     with h5py.File(test_data_path, 'r') as f:
-        dt = f.attrs["TimeStep"]
-        box_size = f.attrs["BoxSize"]
+        dt = args.metadata.get["dt"]
+        box_size = args.metadata.get["box_size"]
         print(f"Using dataset parameters: dt={dt}, box_size={box_size}")
         
         ground_truth = {
@@ -236,15 +236,16 @@ def train():
     train_dataset, val_dataset = get_train_val_datasets(
         data_path=args.dataset_path,
         window_size=args.window_size,
+        metadata=args.metadata,
         val_split=0.2,  
         augment=args.augment_prob > 0, 
         augment_prob=args.augment_prob,
         seed=args.seed
     )
     
-    # Use dt and box_size directly from the dataset 
-    dt = train_dataset.dt
-    box_size = train_dataset.box_size
+    # Obtain dt and box_size from the metadata
+    dt = args.metadata["dt"]
+    box_size = args.metadata["box_size"]
     print(f"Using time step (dt): {dt}")
     print(f"Using box size: {box_size}")
 
