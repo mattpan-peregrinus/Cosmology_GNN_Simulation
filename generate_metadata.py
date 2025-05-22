@@ -1,19 +1,16 @@
-# generate_metadata.py
-
 import h5py
 import numpy as np
 import json
 import argparse
 
 def generate_metadata(dataset_path, output_path):
-    """Generate metadata from HDF5 dataset and save to JSON."""
     with h5py.File(dataset_path, "r") as f:
         velocities = f['Velocities'][:]
         accelerations = f['HydroAcceleration'][:]
         coordinates = f['Coordinates'][:]
         internal_energy = f['InternalEnergy'][:]
-        box_size = f['BoxSize']
-        dt = f['TimeStep']
+        box_size = float(f['BoxSize'][...])
+        dt = float(f['TimeStep'][...])
 
         temp_mean = np.mean(internal_energy, axis=(0, 1))
         temp_std = np.std(internal_energy, axis=(0, 1))
@@ -37,8 +34,8 @@ def generate_metadata(dataset_path, output_path):
             "vel_std": vel_std.tolist(),
             "acc_mean": acc_mean.tolist(),
             "acc_std": acc_std.tolist(),
-            "box_size": box_size.tolist(),
-            "dt": dt.tolist()
+            "box_size": box_size,
+            "dt": dt
         }
 
         with open(output_path, "w") as f:
