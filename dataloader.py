@@ -32,9 +32,18 @@ class SequenceDataset(Dataset):
 
         with h5py.File(paths[0], "r") as f:
             self.field_names = [field_name for field_name in f.keys()]
-            self.num_snapshots = f[self.field_names[0]].shape[0]
-            self.num_particles = f[self.field_names[0]].shape[1]
-            self.ndims = [f[field_name][:].shape[-1] for field_name in self.field_names]
+            self.num_snapshots = f[self.field_names[1]].shape[0]
+            print({self.num_snapshots})
+            self.num_particles = f[self.field_names[1]].shape[1]
+            print({self.num_particles})
+            self.ndims = []
+            for field_name in self.field_names:
+                data = f[field_name]
+                if data.shape == (): # scalar dataset
+                    self.ndims.append(0)
+                else:
+                    self.ndims.append(data.shape[-1])
+            print(self.ndims)
             
             self.dt = metadata["dt"]
             self.box_size = metadata["box_size"]
@@ -85,14 +94,18 @@ class SequenceDataset(Dataset):
         if not self.is_read_once[ifile]:
             self.is_read_once[ifile] = True
 
-        in_fields = {field_name:None for field_name in self.field_names}
-        tgt_fields = {field_name:None for field_name in self.field_names}
+        in_fields = {}  # Initialize empty dicts - will only add non-scalar fields
+        tgt_fields = {}  
         
         # WARNING
         # Assume all fields have shape (#time_steps, #particles, # dimension)
         # For internal energy it should be (#time_steps, #particles, 1)
         with h5py.File(self.file_lists[ifile], "r") as f:
-            for field_name in self.field_names:
+            for i, field_name in enumerate(self.field_names):
+                # Skip scalar datasets
+                if self.ndims[i] == 0:
+                    continue
+                    
                 # Each field has shape (#time_steps, #particles, # dimension)
                 in_fields[field_name] = f[field_name][start_idx:end_idx].astype(np.float32)
                 tgt_fields[field_name] = f[field_name][end_idx:end_idx+1].astype(np.float32)

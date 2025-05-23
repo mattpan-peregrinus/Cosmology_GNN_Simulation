@@ -2,12 +2,13 @@ import numpy as np
 import h5py
 from dataloader import SequenceDataset
 
-def get_train_val_datasets(data_path, window_size, val_split=0.2, augment=False, augment_prob=0.1, seed=42):
+def get_train_val_datasets(data_path, window_size, metadata, val_split=0.2, augment=False, augment_prob=0.1, seed=42):
     # Set random seed for reproducibility
     np.random.seed(seed)
     
     with h5py.File(data_path, "r") as f:
-        field_name = list(f.keys())[0]  
+        # For reference, elements in the original dataset: BoxSize, Coordinates, HydroAcceleration, InternalEnergy, TimeStep, Velocities
+        field_name = list(f.keys())[1]  
         num_snapshots = f[field_name].shape[0]
     
     # Calculate how many sequences we can make

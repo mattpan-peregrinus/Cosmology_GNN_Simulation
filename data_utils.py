@@ -45,15 +45,11 @@ def generate_noise(position_seq, noise_std):
     return position_noise
 
 
-def preprocess(position_seq, temperature_seq, metadata, target_position=None, target_temperature=None, noise_std=0.0, num_neighbors=16):
+def preprocess(position_seq, temperature_seq, metadata, target_position=None, target_temperature=None, noise_std=0.0, num_neighbors=16, dt=None, box_size=None):
     """Preprocess a trajectory and construct a PyG Data object with both position and temperature target."""
     # Determine box size and timestep
-    box_size = metadata["box_size"]
-    if isinstance(box_size, list):
-        box_size = float(box_size[0])
-    dt = metadata["dt"]
-    if isinstance(dt, list):
-        dt = float(dt[0])
+    dt = float(dt)
+    box_size = float(box_size)
     
     position_seq = position_seq.float()
     if target_position is not None:
