@@ -42,6 +42,7 @@ def plot_losses(train_losses, val_losses, output_path, component_losses=None):
     ax1.set_ylabel('Loss', fontsize=14)
     ax1.grid(True, linestyle='--', alpha=0.7)
     ax1.legend(fontsize=12)
+    ax1.set_yscale('log')
     
     # Plot component losses if provided
     if component_losses:
@@ -53,6 +54,7 @@ def plot_losses(train_losses, val_losses, output_path, component_losses=None):
         ax2.set_ylabel('Loss (MSE)', fontsize=12)
         ax2.grid(True, linestyle='--', alpha=0.7)
         ax2.legend(fontsize=10)
+        ax2.set_yscale('log')
         
         # Temperature_rate loss
         ax3.plot(epochs, component_losses['temp_rate']['train'], 'b-', linewidth=2, label='Train')
@@ -62,6 +64,7 @@ def plot_losses(train_losses, val_losses, output_path, component_losses=None):
         ax3.set_ylabel('Loss (MSE)', fontsize=12)
         ax3.grid(True, linestyle='--', alpha=0.7)
         ax3.legend(fontsize=10)
+        ax3.set_yscale('log')
     
     plt.tight_layout()
     plt.savefig(output_path)
