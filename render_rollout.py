@@ -28,7 +28,11 @@ def rollout(model, data, metadata, noise_std, dt, box_size, window_size=6):
 
     total_time = data["Coordinates"].size(0)
     position_traj = data["Coordinates"][:window_size].permute(1, 0, 2).float() # -> [num_particles, window_size, 3]
-    temp_traj = data["InternalEnergy"][:window_size].permute(1, 0, 2).float() # -> [num_particles, window_size, 1]
+    # Handle temperature data - ensure it's 3D before permuting
+    temp_data = data["InternalEnergy"][:window_size]
+    if temp_data.dim() == 2:
+        temp_data = temp_data.unsqueeze(-1)  # Add feature dimension: [time_steps, num_particles, 1]
+    temp_traj = temp_data.permute(1, 0, 2).float() # -> [num_particles, window_size, 1]
 
     for time in range(total_time - window_size):
         # Build a graph with no noise for rollout
@@ -139,7 +143,7 @@ def main():
     parser.add_argument('--test_data', type=str, required=True, help='Path to test data')
     parser.add_argument('--metadata_path', type=str, required=True, help='Path to metadata')
     parser.add_argument('--output_dir', type=str, default='rollout_results', help='Output directory for results')
-    parser.add_argument('--window_size', type=int, default=6, help='Input window size')
+    parser.add_argument('--window_size', type=int, default=5, help='Input window size')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use for training')
     parser.add_argument('--noise_std', type=float, default=0.0, help='Noise standard deviation')
     parser.add_argument('--latent_size', type=int, default=128, help='Model latent size')
@@ -196,10 +200,10 @@ def main():
     )
     
     coords_path = os.path.join(args.output_dir, "rollout_coordinates.npy")
-    np.save(coords_path, rollout_data["Coordinates"].numpy())
+    np.save(coords_path, rollout_data["Coordinates"].detach().numpy())
     
     temps_path = os.path.join(args.output_dir, "rollout_temperatures.npy")
-    np.save(temps_path, rollout_data["InternalEnergy"].numpy())
+    np.save(temps_path, rollout_data["InternalEnergy"].detach().numpy())
     
     print(f"Rollout coordinates saved to {coords_path}")
     print(f"Rollout temperatures saved to {temps_path}")

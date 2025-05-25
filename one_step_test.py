@@ -44,6 +44,12 @@ def validate_one_step(model, data_path, metadata, window_size, device, num_neigh
             # Handle temperature data
             temp_seq = torch.tensor(f["InternalEnergy"][start_idx:start_idx+window_size], dtype=torch.float32)
             next_temp = torch.tensor(f["InternalEnergy"][start_idx+window_size], dtype=torch.float32)
+            
+            # Ensure temperature data is 3D: [time_steps, num_particles, 1]
+            if temp_seq.dim() == 2:
+                temp_seq = temp_seq.unsqueeze(-1)  # Add feature dimension
+            if next_temp.dim() == 1:
+                next_temp = next_temp.unsqueeze(-1)  # Add feature dimension
 
             graph = preprocess(
                 position_seq=coords_seq,
