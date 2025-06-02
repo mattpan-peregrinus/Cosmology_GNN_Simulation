@@ -11,7 +11,7 @@ def generate_metadata(dataset_path, output_path):
         internal_energy = f['InternalEnergy'][:]
         box_size = float(f['BoxSize'][...])
         dt = float(f['TimeStep'][...])
-
+        
         temp_mean = np.mean(internal_energy, axis=(0, 1))
         temp_std = np.std(internal_energy, axis=(0, 1))
 
