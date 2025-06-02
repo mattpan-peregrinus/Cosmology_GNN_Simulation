@@ -52,9 +52,11 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
     box_size = float(box_size)
     
     position_seq = position_seq.float()
+    temperature_seq = temperature_seq.float()
     if target_position is not None:
         target_position = target_position.float()
-    temperature_seq = temperature_seq.float()
+    if target_temperature is not None:
+        target_temperature = target_temperature.float()
     
     # Rearrange dimensions if needed
     position_seq = position_seq.permute(1, 0, 2)    
@@ -68,12 +70,12 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
     # Compute velocities
     recent_position = position_seq[:, -1]
     # Get displacements first
-    displacement_seq = position_seq[:, 1:] - position_seq[:, :-1]
+    recent_displacement = position_seq[:, -1] - position_seq[:, -2]
     # Correct for boundary crossings
-    displacement_seq[displacement_seq < -1*box_size/2] += box_size
-    displacement_seq[displacement_seq > box_size/2] -= box_size
+    recent_displacement[recent_displacement < -1*box_size/2] += box_size
+    recent_displacement[recent_displacement > box_size/2] -= box_size
     # Divide corrected displacements by dt to get velocities
-    velocity_seq = displacement_seq / dt
+    recent_velocity = recent_displacement / dt
 
     # Get recent temperature
     recent_temperature = temperature_seq[:, -1] 
@@ -91,29 +93,25 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
             if target_temperature.numel() == recent_temperature.numel():
                 target_temperature = target_temperature.reshape(recent_temperature.shape)
 
-    # Node-level features
-    vel_mean = torch.tensor(metadata["vel_mean"], dtype=torch.float32)
-    vel_std = torch.tensor(metadata["vel_std"], dtype=torch.float32)
-    normal_velocity_seq = (velocity_seq - vel_mean) / torch.sqrt(vel_std**2 + noise_std**2)
+    """
+    Node-level features
+    """
     
     # Process temperature features
     if "temp_mean" in metadata and "temp_std" in metadata:
         temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
         temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
-        normal_temp_seq = (temperature_seq - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
+        normal_temp = (recent_temperature - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
     else:
-        normal_temp_seq = temperature_seq
+        normal_temp = recent_temperature
     
-    # Flatten features for input to the model
-    flat_velocity = normal_velocity_seq.reshape(normal_velocity_seq.size(0), -1)
-    flat_temperature = normal_temp_seq.reshape(normal_temp_seq.size(0), -1)
-        
-    # Create node features: just velocity sequency and temperature sequence
-    node_features = torch.cat((
-            flat_velocity, 
-            flat_temperature,
-        ), dim=-1)
+    # Create node features: current temperature
+    node_features = torch.tensor(normal_temp, dtype=torch.float32)
     
+    
+    """
+    Edge-level features
+    """
     # Construct the graph via k-nearest neighbors with periodicity
     extended_positions, mapping = extend_positions_torch(recent_position, box_size)
     edge_index = knn(extended_positions, recent_position, num_neighbors)
@@ -121,17 +119,22 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
     edge_index[0] = mapping[edge_index[0]]
     edge_index[1] = mapping[edge_index[1]]
 
-    # Edge-level features
     senders = edge_index[0]
     receivers = edge_index[1]
 
     assert torch.max(senders) < len(recent_position), f"Max sender index {torch.max(senders)} >= {len(recent_position)}"
     assert torch.max(receivers) < len(recent_position), f"Max receiver index {torch.max(receivers)} >= {len(recent_position)}"
 
+    vel_mean = torch.tensor(metadata["vel_mean"], dtype=torch.float32)
+    vel_std = torch.tensor(metadata["vel_std"], dtype=torch.float32)
+    normal_velocity = (recent_velocity - vel_mean) / torch.sqrt(vel_std**2 + noise_std**2)
+
     # Compute displacement and distance, concatenate into the edge attribute
     edge_displacement = recent_position[senders] - recent_position[receivers]
     edge_distance = torch.norm(edge_displacement, dim=-1, keepdim=True)
-    edge_attr = torch.cat((edge_displacement, edge_distance), dim=-1)
+    edge_relvel = normal_velocity[senders] - normal_velocity[receivers] # relative velocity
+    edge_relvel_mag = torch.norm(edge_relvel, dim=-1, keepdim=True) # Magnitude of relative velocity
+    edge_attr = torch.cat((edge_displacement, edge_distance, edge_relvel, edge_relvel_mag), dim=-1)
     
     acceleration = None
     temp_rate = None
@@ -143,9 +146,7 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
             target_position = target_position.squeeze(1)  # -> [num_particles, 3]
         elif target_position.dim() == 2 and target_position.shape[0] != recent_position.shape[0]:
             target_position = target_position.reshape(-1, 3)
-        
-        last_velocity = velocity_seq[:, -1]  # Already scaled by dt
-
+    
         # Compute the next velocity, taking into account periodicity
         next_displacement = target_position - recent_position
         next_displacement[next_displacement < -1*box_size/2] += box_size
@@ -161,7 +162,7 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
         next_velocity = next_velocity + noise_term/dt  # Scale noise by dt
         
         # Calculate acceleration (change in velocity over time)
-        acceleration = (next_velocity - last_velocity) / dt  # Scale by dt again for acceleration
+        acceleration = (next_velocity - recent_velocity) / dt  # Scale by dt again for acceleration
         
         # Normalize acceleration
         acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
