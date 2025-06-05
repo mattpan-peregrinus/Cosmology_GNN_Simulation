@@ -6,6 +6,7 @@ import torch_geometric as pyg
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from torch.optim.lr_scheduler import ExponentialLR
 
 torch.set_default_dtype(torch.float32)
 
@@ -134,8 +135,18 @@ def train():
     if args.pretrained_model:
         simulator = load_pretrained_model(simulator, args.pretrained_model)
         print(f"Starting training from pretrained model: {args.pretrained_model}")
-            
+    
+    # Set up learning rate scheduler 
     optimizer = torch.optim.Adam(simulator.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    initial_lr = args.learning_rate
+    final_lr = args.final_learning_rate
+    decay_rate = (final_lr / initial_lr) ** (1 / args.num_epochs)
+    scheduler = ExponentialLR(optimizer, gamma=decay_rate)
+    train_learning_rates = []
+    
+    print(f"Learning rate will decay from {initial_lr} to {final_lr} over {args.num_epochs} epochs.")
+    print(f"Decay rate: {decay_rate}")
+    
     loss_fn = torch.nn.MSELoss()
     
     train_losses = []
@@ -151,6 +162,8 @@ def train():
     # Training loop
     global_step = 0
     for epoch in range(args.num_epochs):
+        current_lr = optimizer.param_groups[0]['lr']
+        train_learning_rates.append(current_lr)
         simulator.train()
         bar = tqdm(train_loader, desc=f"Epoch {epoch}")
         total_loss = 0.0
@@ -242,9 +255,13 @@ def train():
         component_losses['acceleration']['val'].append(val_component_losses['acceleration'])
         component_losses['temp_rate']['val'].append(val_component_losses['temp_rate'])
         
+        # Update learning rate 
+        scheduler.step()
+        
         print(f"Epoch {epoch}: "
               f"training loss = {avg_train_loss:.6f}, "
               f"validation loss = {val_loss:.6f}, "
+              f"learning rate = {current_lr:.2e}, "
               f"train acc loss = {avg_acc_train_loss:.6f}, "
               f"val acc loss = {val_component_losses['acceleration']:.6f}, "
               f"train temp_rate loss = {avg_temp_rate_train_loss:.6f}, "
@@ -291,6 +308,7 @@ def train():
     history = {
         'train_loss': train_losses,
         'val_loss': val_losses,
+        'learning_rates': train_learning_rates,
         'component_losses': {
             'acc_train': component_losses['acceleration']['train'],
             'acc_val': component_losses['acceleration']['val'],

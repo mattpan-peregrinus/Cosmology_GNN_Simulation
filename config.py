@@ -26,6 +26,7 @@ def get_config():
     parser.add_argument('--noise_std', type=float, default=0.0, help='Standard deviation of noise added to positions')
     parser.add_argument('--num_epochs', type=int, default=10, help='Number of epochs to train')
     parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate for optimizer')
+    parser.add_argument('--final_learning_rate', type=float, default=1e-6, help='Final learning rate for optimizer')
     parser.add_argument('--weight_decay', type=float, default=0, help='Weight decay for optimizer')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use for training')
     parser.add_argument('--num_workers', type=int, default=0, help='Number of worker processes for data loading')
