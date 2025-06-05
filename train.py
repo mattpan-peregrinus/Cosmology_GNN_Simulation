@@ -19,21 +19,20 @@ from validation import validate
 import h5py
 import matplotlib.pyplot as plt
 
-def plot_losses(train_losses, val_losses, output_path, component_losses=None):
+def plot_losses(train_losses, val_losses, output_path, component_losses, learning_rates):
     # Create figure with subplots
-    if component_losses:
-        fig = plt.figure(figsize=(15, 10))
-        gs = plt.GridSpec(2, 2, figure=fig)
+    fig = plt.figure(figsize=(15, 12))
+    gs = plt.GridSpec(3, 2, figure=fig, height_ratios=[2, 1, 1])
         
-        # Plot 1: Combined training and validation loss (top span)
-        ax1 = fig.add_subplot(gs[0, :])
+    # Plot 1: Combined training and validation loss (top span)
+    ax1 = fig.add_subplot(gs[0, :])
         
-        # Plot 2-3: Component losses (bottom row)
-        ax2 = fig.add_subplot(gs[1, 0])
-        ax3 = fig.add_subplot(gs[1, 1])
-    else:
-        # Just create a single plot
-        fig, ax1 = plt.subplots(figsize=(10, 6))
+    # Plot 2-3: Component losses (middle row)
+    ax2 = fig.add_subplot(gs[1, 0])
+    ax3 = fig.add_subplot(gs[1, 1])
+        
+    # Plot 4: Learning rate (bottom span)
+    ax4 = fig.add_subplot(gs[2, :])
     
     epochs = range(1, len(train_losses) + 1)
     ax1.plot(epochs, train_losses, 'b-', linewidth=2, label='Training Loss')
@@ -45,30 +44,57 @@ def plot_losses(train_losses, val_losses, output_path, component_losses=None):
     ax1.legend(fontsize=12)
     ax1.set_yscale('log')
     
-    # Plot component losses if provided
-    if component_losses:
-        # Acceleration loss
-        ax2.plot(epochs, component_losses['acceleration']['train'], 'b-', linewidth=2, label='Train')
-        ax2.plot(epochs, component_losses['acceleration']['val'], 'r-', linewidth=2, label='Validation')
-        ax2.set_title('Acceleration Loss', fontsize=14)
-        ax2.set_xlabel('Epoch', fontsize=12)
-        ax2.set_ylabel('Loss (MSE)', fontsize=12)
-        ax2.grid(True, linestyle='--', alpha=0.7)
-        ax2.legend(fontsize=10)
-        ax2.set_yscale('log')
+    epochs = range(1, len(train_losses) + 1)
+    
+    # Main loss plot
+    ax1.plot(epochs, train_losses, 'b-', linewidth=2, label='Training Loss')
+    ax1.plot(epochs, val_losses, 'r-', linewidth=2, label='Validation Loss')
+    ax1.set_title('Training and Validation Loss per Epoch', fontsize=16)
+    ax1.set_xlabel('Epoch', fontsize=14)
+    ax1.set_ylabel('Loss', fontsize=14)
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    ax1.legend(fontsize=12)
+    ax1.set_yscale('log')
+    
+    # Acceleration loss
+    ax2.plot(epochs, component_losses['acceleration']['train'], 'b-', linewidth=2, label='Train')
+    ax2.plot(epochs, component_losses['acceleration']['val'], 'r-', linewidth=2, label='Validation')
+    ax2.set_title('Acceleration Loss', fontsize=14)
+    ax2.set_xlabel('Epoch', fontsize=12)
+    ax2.set_ylabel('Loss (MSE)', fontsize=12)
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    ax2.legend(fontsize=10)
+    ax2.set_yscale('log')
         
-        # Temperature_rate loss
-        ax3.plot(epochs, component_losses['temp_rate']['train'], 'b-', linewidth=2, label='Train')
-        ax3.plot(epochs, component_losses['temp_rate']['val'], 'r-', linewidth=2, label='Validation')
-        ax3.set_title('Temperature_Rate Loss', fontsize=14)
-        ax3.set_xlabel('Epoch', fontsize=12)
-        ax3.set_ylabel('Loss (MSE)', fontsize=12)
-        ax3.grid(True, linestyle='--', alpha=0.7)
-        ax3.legend(fontsize=10)
-        ax3.set_yscale('log')
+    ax3.plot(epochs, component_losses['temp_rate']['train'], 'b-', linewidth=2, label='Train')
+    ax3.plot(epochs, component_losses['temp_rate']['val'], 'r-', linewidth=2, label='Validation')
+    ax3.set_title('Temperature_Rate Loss', fontsize=14)
+    ax3.set_xlabel('Epoch', fontsize=12)
+    ax3.set_ylabel('Loss (MSE)', fontsize=12)
+    ax3.grid(True, linestyle='--', alpha=0.7)
+    ax3.legend(fontsize=10)
+    ax3.set_yscale('log')
+        
+    ax4.plot(epochs, learning_rates, 'g-', linewidth=3, label='Learning Rate')
+    ax4.set_title('Learning Rate Schedule (Exponential Decay)', fontsize=14)
+    ax4.set_xlabel('Epoch', fontsize=12)
+    ax4.set_ylabel('Learning Rate', fontsize=12)
+    ax4.grid(True, linestyle='--', alpha=0.7)
+    ax4.set_yscale('log')
+    ax4.legend(fontsize=10)
+            
+    # Add text annotations for initial and final LR
+    if len(learning_rates) > 0:
+        ax4.text(0.02, 0.95, f'Initial LR: {learning_rates[0]:.2e}', 
+                 transform=ax4.transAxes, fontsize=10, verticalalignment='top',
+                 bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.7))
+    if len(learning_rates) > 1:
+        ax4.text(0.02, 0.05, f'Current LR: {learning_rates[-1]:.2e}',
+                 transform=ax4.transAxes, fontsize=10, verticalalignment='bottom',
+                 bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.7))
     
     plt.tight_layout()
-    plt.savefig(output_path)
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
 
 def load_pretrained_model(model, model_path):
@@ -280,7 +306,8 @@ def train():
             train_losses, 
             val_losses, 
             os.path.join(plots_dir, f'losses_epoch_{epoch}.png'),
-            component_losses
+            component_losses,
+            train_learning_rates
         )
        
         # Periodic checkpoints        
@@ -293,7 +320,8 @@ def train():
         train_losses, 
         val_losses, 
         os.path.join(plots_dir, 'losses_final.png'),
-        component_losses
+        component_losses,
+        train_learning_rates
     )
     
     best_model_path = os.path.join(args.output_dir, "model_best.pth")
