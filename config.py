@@ -41,6 +41,7 @@ def get_config():
     parser.add_argument('--plots_dir', type=str, default='plots', help='Subdirectory for saving plots')
     parser.add_argument('--pretrained_model', type=str, default=None, help='Path to pretrained model for fine-tuning')
     parser.add_argument('--test_data_path', type=str, default=None, help='Path to test data for relative error evaluation')
+    parser.add_argument('--multi_simulation', type=bool, default=False, help='Enable multi-simulation mode for training on multiple simulation files (default: False)')
     
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
