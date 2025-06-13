@@ -11,82 +11,159 @@ class SequenceDataset(Dataset):
         self,
         paths,
         window_size,
-        metadata,
+        metadata,  
         norms=None,
         augment=False,
         augment_prob=0.1,
-        start_indices=None,
+        start_indices=None,  
+        multi_simulation=False,  
         **kwargs,
     ):
+        
+        self.multi_simulation = multi_simulation
+        
+        if multi_simulation:
+            if isinstance(paths, str):
+                if os.path.isdir(paths):
+                    file_lists = sorted(glob(os.path.join(paths, "*.hdf5")))
+                    if not file_lists:
+                        raise FileNotFoundError(f"No HDF5 files found in {paths}")
+                else:
+                    file_lists = [paths]
+            elif isinstance(paths, list):
+                file_lists = paths
+            else:
+                raise ValueError("In multi_simulation mode, paths must be a directory, file, or list of files")
+                
+            if start_indices is not None:
+                print("Warning: start_indices ignored in multi_simulation mode")
+                start_indices = None
+                
+        else:
+            if isinstance(paths, list):
+                if len(paths) > 1:
+                    print("Warning: Multiple paths provided but multi_simulation=False. Using first path only.")
+                file_lists = [paths[0]]
+            else:
+                file_lists = [paths]
 
-        file_lists = paths
         self.file_lists = file_lists
         self.nfiles = len(file_lists)
         
-        
-        print(f"initializing with {self.nfiles} files")
+        print(f"Initializing dataset with {self.nfiles} simulation file(s)")
+        print(f"Multi-simulation mode: {multi_simulation}")  
 
         if self.nfiles == 0:
-            raise FileNotFoundError("file not found for {}".format(paths))
-        self.is_read_once = np.full(self.nfiles, False)
+            raise FileNotFoundError("No files found")
 
-        with h5py.File(paths[0], "r") as f:
-            self.field_names = [field_name for field_name in f.keys()]
-            self.num_snapshots = f[self.field_names[1]].shape[0]
-            print({self.num_snapshots})
-            self.num_particles = f[self.field_names[1]].shape[1]
-            print({self.num_particles})
+        with h5py.File(self.file_lists[0], "r") as f:
+            self.field_names = [field_name for field_name in f.keys() if f[field_name].ndim > 0]  
+            self.num_snapshots = f[self.field_names[0]].shape[0]
+            self.num_particles = f[self.field_names[0]].shape[1]
             self.ndims = []
             for field_name in self.field_names:
                 data = f[field_name]
-                if data.shape == (): # scalar dataset
-                    self.ndims.append(0)
-                else:
+                if data.ndim == 2:  
+                    self.ndims.append(1)
+                else:  # [time, particles, features]
                     self.ndims.append(data.shape[-1])
-            print(self.ndims)
-            
-            self.dt = metadata["dt"]
-            self.box_size = metadata["box_size"]
 
+        if multi_simulation and self.nfiles > 1:
+            for i, file_path in enumerate(self.file_lists[1:], 1):
+                with h5py.File(file_path, "r") as f:
+                    num_snapshots = f[self.field_names[0]].shape[0]
+                    num_particles = f[self.field_names[0]].shape[1]
+                    
+                    if num_snapshots != self.num_snapshots:
+                        raise ValueError(f"File {file_path} has {num_snapshots} snapshots, "
+                                       f"expected {self.num_snapshots}")
+                    if num_particles != self.num_particles:
+                        raise ValueError(f"File {file_path} has {num_particles} particles, "
+                                       f"expected {self.num_particles}")
+
+        self.metadata = metadata
+        self.dt = metadata["dt"]
+        self.box_size = metadata["box_size"]
+        
         self.norms = norms
         self.augment = augment
         self.augment_prob = augment_prob
         self.window_size = window_size
         
         # Assertion 1: Check if the number of snapshots is larger than the window size
-        assert self.num_snapshots >= self.window_size + 1, "num_snapshots must be larger than window_size"
+        assert self.num_snapshots >= self.window_size + 1, \
+            f"num_snapshots ({self.num_snapshots}) must be larger than window_size + 1 ({self.window_size + 1})"
         
-        total_possible_sequences = self.num_snapshots - (self.window_size + 1) + 1
-        if start_indices is not None:
-            self.start_indices = start_indices
-            self.num_sequences = len(self.start_indices)
-            max_index = max(self.start_indices) if self.start_indices else 0
-            assert max_index < total_possible_sequences, f"Invalid start index: {max_index} >= {total_possible_sequences}"
+        if multi_simulation:
+            self.num_sequences_per_sim = self.num_snapshots - self.window_size
+            self.start_indices = None  
+            self.num_sequences = self.num_sequences_per_sim
+            self.num_samples = self.nfiles * self.num_sequences_per_sim
         else:
-            self.start_indices = list(range(total_possible_sequences))
-            self.num_sequences = total_possible_sequences
-            
-        self.num_samples = self.nfiles * self.num_sequences
+            total_possible_sequences = self.num_snapshots - self.window_size
+            if start_indices is not None:
+                self.start_indices = start_indices
+                self.num_sequences = len(self.start_indices)
+                max_index = max(self.start_indices) if self.start_indices else 0
+                assert max_index < total_possible_sequences, \
+                    f"Invalid start index: {max_index} >= {total_possible_sequences}"
+            else:
+                self.start_indices = list(range(total_possible_sequences))
+                self.num_sequences = total_possible_sequences
+            self.num_samples = self.nfiles * self.num_sequences
+
+        print(f"Dataset summary:")
+        print(f"  - Number of simulations: {self.nfiles}")
+        print(f"  - Snapshots per simulation: {self.num_snapshots}")
+        print(f"  - Particles per snapshot: {self.num_particles}")
+        print(f"  - Window size: {self.window_size}")
+        print(f"  - Sequences per simulation: {self.num_sequences}")
+        print(f"  - Total samples: {self.num_samples}")
+
+        # Caching for multi-simulation mode
+        self._cached_sim_idx = None
+        self._cached_sim_data = None
         
-        # Assertion 2: Check that number of sequences has to be equal to number of starting indices 
-        assert len(self.start_indices) == self.num_sequences, "num_sequences must be equal to number of starting indices"
-        
-        # For debugging (summary of particles dataset)
-        '''
-        print(f"num_particles: {self.num_particles}")
-        print(f"num_snapshots: {self.num_snapshots}")
-        print(f"window_size: {self.window_size}")
-        print(f"num_sequences: {self.num_sequences}")
-        print(f"num_samples: {self.num_samples}")
-        print(f"start indices = {self.start_indices}")
-        print(f"start_indices length = {len(self.start_indices)}")
-        '''
-        
+        self.is_read_once = np.full(self.nfiles, False)
 
     def __len__(self):
         return self.num_samples
 
     def __getitem__(self, idx):
+        if self.multi_simulation:
+            return self._get_multi_sim_item(idx)
+        else:
+            return self._get_single_sim_item(idx)
+
+    def _get_multi_sim_item(self, idx):
+        # Determine which simulation and which sequence within that simulation
+        sim_idx, seq_idx = divmod(idx, self.num_sequences_per_sim)
+        start_idx = seq_idx
+        end_idx = start_idx + self.window_size
+        
+        # Load simulation data with caching
+        if sim_idx != self._cached_sim_idx:
+            self._load_simulation(sim_idx)
+            
+        # Extract sequence from cached data
+        in_fields = {}
+        tgt_fields = {}
+        
+        for field_name in self.field_names:
+            # Get input sequence
+            in_fields[field_name] = self._cached_sim_data[field_name][start_idx:end_idx].astype(np.float32)
+            # Get target (next timestep)
+            tgt_fields[field_name] = self._cached_sim_data[field_name][end_idx:end_idx+1].astype(np.float32)
+            
+            if field_name == 'InternalEnergy':
+                if len(in_fields[field_name].shape) == 2:
+                    in_fields[field_name] = in_fields[field_name][..., np.newaxis]
+                if len(tgt_fields[field_name].shape) == 2:
+                    tgt_fields[field_name] = tgt_fields[field_name][..., np.newaxis]
+
+        return self._process_fields(in_fields, tgt_fields)
+
+    def _get_single_sim_item(self, idx):
         ifile, iseq = divmod(idx, self.num_sequences)
         start_idx = self.start_indices[iseq]
         end_idx = start_idx + self.window_size
@@ -94,56 +171,46 @@ class SequenceDataset(Dataset):
         if not self.is_read_once[ifile]:
             self.is_read_once[ifile] = True
 
-        in_fields = {}  # Initialize empty dicts - will only add non-scalar fields
-        tgt_fields = {}  
+        in_fields = {}
+        tgt_fields = {}
         
-        # WARNING
-        # Assume all fields have shape (#time_steps, #particles, # dimension)
-        # For internal energy it should be (#time_steps, #particles, 1)
         with h5py.File(self.file_lists[ifile], "r") as f:
             for i, field_name in enumerate(self.field_names):
-                # Skip scalar datasets
-                if self.ndims[i] == 0:
-                    continue
-                    
                 # Each field has shape (#time_steps, #particles, # dimension)
                 in_fields[field_name] = f[field_name][start_idx:end_idx].astype(np.float32)
                 tgt_fields[field_name] = f[field_name][end_idx:end_idx+1].astype(np.float32)
                 
-                # If this is InternalEnergy and it's not already 3D, make it 3D
                 if field_name == 'InternalEnergy' and len(in_fields[field_name].shape) == 2:
                     in_fields[field_name] = in_fields[field_name][..., np.newaxis]
                     tgt_fields[field_name] = tgt_fields[field_name][..., np.newaxis]
 
-        in_fields = {key:torch.from_numpy(field).float() for key, field in in_fields.items()}
-        tgt_fields = {key:torch.from_numpy(field).float() for key, field in tgt_fields.items()}
+        return self._process_fields(in_fields, tgt_fields)
+
+    def _process_fields(self, in_fields, tgt_fields):
+        in_fields = {key: torch.from_numpy(field).float() for key, field in in_fields.items()}
+        tgt_fields = {key: torch.from_numpy(field).float() for key, field in tgt_fields.items()}
         
-        # If self.norm is not None:
+        # Apply augmentation if enabled 
         if self.augment:
-            # Apply time reversal symmetry
-            # Field shape (#n_timesteps, #n_particles, #dims)
+            # Time reversal symmetry
             if np.random.random() < self.augment_prob:
                 flip_dim = 0
-                for i, (key, field) in enumerate(in_fields.items()):
+                for key, field in in_fields.items():
                     if key == "Velocities":
                         field = -1 * field
                     in_fields[key] = torch.flip(field, [flip_dim])
 
-
-            # Apply random permutaion of xyz axis
+            # Random permutation of xyz axis
             if np.random.random() < self.augment_prob:
                 perm_idx = torch.randperm(3)
                 for i, (key, field) in enumerate(in_fields.items()):
-                    ndim = self.ndims[i]
-                    # Add dimension check, since permuation of axes only support ndim>=2
-                    if ndim >=2 and field.shape[-1] == 3:
-                        field = field[..., perm_idx]
-                        in_fields[key] = field
+                    ndim = self.ndims[i] if i < len(self.ndims) else field.shape[-1]  
+                    if ndim >= 2 and field.shape[-1] == 3:
+                        in_fields[key] = field[..., perm_idx]
                 for i, (key, field) in enumerate(tgt_fields.items()):
-                    ndim = self.ndims[i]
-                    if ndim >=2 and field.shape[-1] == 3:
-                        field = field[..., perm_idx]
-                        tgt_fields[key] = field
+                    ndim = self.ndims[i] if i < len(self.ndims) else field.shape[-1]  
+                    if ndim >= 2 and field.shape[-1] == 3:
+                        tgt_fields[key] = field[..., perm_idx]
 
         return {
             "input": {
@@ -153,3 +220,26 @@ class SequenceDataset(Dataset):
             },
             "target": tgt_fields,
         }
+
+    def _load_simulation(self, sim_idx):
+        file_path = self.file_lists[sim_idx]
+        
+        self._cached_sim_data = {}
+        
+        with h5py.File(file_path, "r") as f:
+            for field_name in self.field_names:
+                self._cached_sim_data[field_name] = f[field_name][:]
+                
+        self._cached_sim_idx = sim_idx
+        print(f"Loaded simulation {sim_idx}: {os.path.basename(file_path)}")
+
+
+class MultiSimulationDataset(SequenceDataset):
+    def __init__(self, simulation_dir, window_size, metadata, **kwargs):
+        super().__init__(
+            paths=simulation_dir, 
+            window_size=window_size, 
+            metadata=metadata,
+            multi_simulation=True, 
+            **kwargs
+        )

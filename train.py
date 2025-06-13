@@ -120,7 +120,8 @@ def train():
         val_split=0.2,  
         augment=args.augment_prob > 0, 
         augment_prob=args.augment_prob,
-        seed=args.seed
+        seed=args.seed,
+        multi_simulation=args.multi_simulation
     )
     
     # Obtain dt and box_size from the metadata
