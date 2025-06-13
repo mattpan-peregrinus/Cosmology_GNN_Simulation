@@ -247,12 +247,13 @@ def train():
             temp_rate_loss_total += temp_rate_loss.item()
             count += 1
             
-            bar.set_postfix({
-            "loss": combined_loss.item(), 
-            "avg_loss": total_loss / count,
-            "acc_loss": acc_loss.item(),
-            "temp_rate_loss": temp_rate_loss.item()
-            })
+            if count % 5 == 0:
+                bar.set_postfix({
+                "loss": combined_loss.item(), 
+                "avg_loss": total_loss / count,
+                "acc_loss": acc_loss.item(),
+                "temp_rate_loss": temp_rate_loss.item()
+                })
             
             global_step += 1
         

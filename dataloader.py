@@ -27,6 +27,8 @@ class SequenceDataset(Dataset):
                 if os.path.isdir(paths):
                     file_lists = sorted(glob(os.path.join(paths, "*.hdf5")))
                     if not file_lists:
+                        file_lists = sorted(glob(os.path.join(paths, "*.h5")))
+                    if not file_lists:
                         raise FileNotFoundError(f"No HDF5 files found in {paths}")
                 else:
                     file_lists = [paths]
@@ -34,11 +36,6 @@ class SequenceDataset(Dataset):
                 file_lists = paths
             else:
                 raise ValueError("In multi_simulation mode, paths must be a directory, file, or list of files")
-                
-            if start_indices is not None:
-                print("Warning: start_indices ignored in multi_simulation mode")
-                start_indices = None
-                
         else:
             if isinstance(paths, list):
                 if len(paths) > 1:
@@ -96,9 +93,18 @@ class SequenceDataset(Dataset):
         
         if multi_simulation:
             self.num_sequences_per_sim = self.num_snapshots - self.window_size
-            self.start_indices = None  
-            self.num_sequences = self.num_sequences_per_sim
-            self.num_samples = self.nfiles * self.num_sequences_per_sim
+            if start_indices is not None:
+                self.start_indices = start_indices
+                self.num_sequences = len(self.start_indices)
+                # Validate that start_indices are within bounds for multi-simulation
+                max_possible_sequences = self.nfiles * self.num_sequences_per_sim
+                max_index = max(self.start_indices) if self.start_indices else 0
+                assert max_index < max_possible_sequences, \
+                    f"Invalid start index: {max_index} >= {max_possible_sequences}"
+            else:
+                self.start_indices = None  
+                self.num_sequences = self.nfiles * self.num_sequences_per_sim
+            self.num_samples = len(self.start_indices) if self.start_indices else (self.nfiles * self.num_sequences_per_sim)
         else:
             total_possible_sequences = self.num_snapshots - self.window_size
             if start_indices is not None:
@@ -110,8 +116,8 @@ class SequenceDataset(Dataset):
             else:
                 self.start_indices = list(range(total_possible_sequences))
                 self.num_sequences = total_possible_sequences
-            self.num_samples = self.nfiles * self.num_sequences
-
+            self.num_samples = len(self.start_indices)
+            
         print(f"Dataset summary:")
         print(f"  - Number of simulations: {self.nfiles}")
         print(f"  - Snapshots per simulation: {self.num_snapshots}")
@@ -136,23 +142,23 @@ class SequenceDataset(Dataset):
             return self._get_single_sim_item(idx)
 
     def _get_multi_sim_item(self, idx):
-        # Determine which simulation and which sequence within that simulation
-        sim_idx, seq_idx = divmod(idx, self.num_sequences_per_sim)
+        if self.start_indices is not None:
+            global_seq_idx = self.start_indices[idx]
+            sim_idx, seq_idx = divmod(global_seq_idx, self.num_sequences_per_sim)
+        else:
+            sim_idx, seq_idx = divmod(idx, self.num_sequences_per_sim)
+        
         start_idx = seq_idx
         end_idx = start_idx + self.window_size
         
-        # Load simulation data with caching
         if sim_idx != self._cached_sim_idx:
             self._load_simulation(sim_idx)
             
-        # Extract sequence from cached data
         in_fields = {}
         tgt_fields = {}
         
         for field_name in self.field_names:
-            # Get input sequence
             in_fields[field_name] = self._cached_sim_data[field_name][start_idx:end_idx].astype(np.float32)
-            # Get target (next timestep)
             tgt_fields[field_name] = self._cached_sim_data[field_name][end_idx:end_idx+1].astype(np.float32)
             
             if field_name == 'InternalEnergy':
@@ -231,7 +237,6 @@ class SequenceDataset(Dataset):
                 self._cached_sim_data[field_name] = f[field_name][:]
                 
         self._cached_sim_idx = sim_idx
-        print(f"Loaded simulation {sim_idx}: {os.path.basename(file_path)}")
 
 
 class MultiSimulationDataset(SequenceDataset):
