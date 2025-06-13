@@ -64,51 +64,50 @@ def _get_multi_sim_datasets(data_path, window_size, metadata, val_split, augment
     if not sim_files:
         raise FileNotFoundError(f"No simulation files found in {data_path}")
     
-    # Split simulations between train and validation
-    num_sims = len(sim_files)
-    np.random.shuffle(sim_files)
+    print(f"Multi-simulation sequence-level split:")
+    print(f"  Found {len(sim_files)} simulation files")
     
-    split_idx = int(num_sims * (1 - val_split))
-    if split_idx == num_sims:  # If val_split is very small, ensure at least one validation sim
-        split_idx = num_sims - 1
-    if split_idx == 0:  # If val_split is very large, ensure at least one training sim
-        split_idx = 1
-        
-    train_files = sim_files[:split_idx]
-    val_files = sim_files[split_idx:]
-    
-    print(f"Multi-simulation split:")
-    print(f"  Training simulations: {len(train_files)}")
-    print(f"  Validation simulations: {len(val_files)}")
-    
-    # Calculate approximate number of samples
-    with h5py.File(sim_files[0], "r") as f:
-        field_name = list(f.keys())[1]
-        num_snapshots = f[field_name].shape[0]
-    
-    sequences_per_sim = num_snapshots - window_size
-    train_samples = len(train_files) * sequences_per_sim
-    val_samples = len(val_files) * sequences_per_sim
-    
-    print(f"  Training samples: ~{train_samples}")
-    print(f"  Validation samples: ~{val_samples}")
-    
-    train_dataset = SequenceDataset(
-        paths=train_files,
+    full_dataset = SequenceDataset(
+        paths=sim_files, 
         window_size=window_size,
         metadata=metadata,
-        augment=augment,  
+        augment=False,  
+        multi_simulation=True
+    )
+    
+    total_sequences = len(full_dataset)
+    
+    all_indices = np.arange(total_sequences)
+    np.random.shuffle(all_indices)
+    
+    # Split at sequence level, not simulation level
+    split_idx = int(total_sequences * (1 - val_split))
+    train_indices = all_indices[:split_idx]
+    val_indices = all_indices[split_idx:]
+    
+    print(f"  Total sequences across all simulations: {total_sequences}")
+    print(f"  Training sequences: {len(train_indices)} ({len(train_indices)/total_sequences*100:.1f}%)")
+    print(f"  Validation sequences: {len(val_indices)} ({len(val_indices)/total_sequences*100:.1f}%)")
+    
+    train_dataset = SequenceDataset(
+        paths=sim_files,
+        window_size=window_size,
+        metadata=metadata,
+        augment=augment,  # Enable augmentation for training
         augment_prob=augment_prob,
+        start_indices=train_indices.tolist(), 
         multi_simulation=True
     )
     
     val_dataset = SequenceDataset(
-        paths=val_files,
+        paths=sim_files,
         window_size=window_size,
         metadata=metadata,
-        augment=False,
+        augment=False,  # Disable augmentation for validation
+        start_indices=val_indices.tolist(),  
         multi_simulation=True
     )
+    
     return train_dataset, val_dataset
 
 def get_simulation_based_split(simulation_dir, window_size, metadata, val_split=0.2, augment=False, augment_prob=0.1, seed=42):
