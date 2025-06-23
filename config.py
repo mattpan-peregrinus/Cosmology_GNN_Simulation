@@ -7,23 +7,21 @@ def get_config():
     parser = argparse.ArgumentParser(description='Cosmology GNN Simulation')
     
     # Necessary args
-    # parser.add_argument('--dataset_path', type=str, required=True, help='Path to dataset file')
+    parser.add_argument('--train_dir', type=str, required=True, help='Directory containing training HDF5 files')
+    parser.add_argument('--val_dir', type=str, required=True, help='Directory containing validation HDF5 files')
     parser.add_argument('--metadata_path', type=str, required=True, help='Path to metadata file')
     parser.add_argument('--output_dir', type=str, default='model_output', help='Path to output directory')
     
+    # Training / hardware args 
     parser.add_argument('--num_neighbors', type=int, default=16, help='Number of nearest neighbors to consider for each node')  
     parser.add_argument('--batch_size', type=int, default=2, help='Batch size for training')
-    
-    # Training / hardware args 
     parser.add_argument('--window_size', type=int, default=5, help='Number of time steps to use for input sequence')
     parser.add_argument('--latent_size', type=int, default=128, help='Size of latent representations')     
     parser.add_argument('--mlp_hidden_size', type=int, default=128, help='Hidden size for MLPs')           
     parser.add_argument('--mlp_num_hidden_layers', type=int, default=2, help='Number of hidden layers in MLPs')   
     parser.add_argument('--num_message_passing_steps', type=int, default=10, help='Number of message passing steps in processor') 
     parser.add_argument('--output_size', type=int, default=3, help='Output dimension (typically 3 for 3D acceleration)')
-    
-    # Usually train with noise sd of 0.0003
-    parser.add_argument('--noise_std', type=float, default=0.0, help='Standard deviation of noise added to positions')
+    parser.add_argument('--noise_std', type=float, default=0.0, help='Standard deviation of noise added to positions') # Usually train with noise sd of 0.0003
     parser.add_argument('--num_epochs', type=int, default=10, help='Number of epochs to train')
     parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate for optimizer')
     parser.add_argument('--final_learning_rate', type=float, default=1e-6, help='Final learning rate for optimizer')
@@ -37,15 +35,9 @@ def get_config():
     parser.add_argument('--acc_loss_weight', type=float, default=1.0, help='Weight for acceleration loss in combined loss')
     
     
-    # Remove old arguments
-    # parser.add_argument('--val_split', type=float, default=0.2, help='Fraction of data to use for validation')
     parser.add_argument('--plots_dir', type=str, default='plots', help='Subdirectory for saving plots')
     parser.add_argument('--pretrained_model', type=str, default=None, help='Path to pretrained model for fine-tuning')
     parser.add_argument('--test_data_path', type=str, default=None, help='Path to test data for relative error evaluation')
-    
-    # Add new arguments
-    parser.add_argument('--train_dir', type=str, required=True, help='Directory containing training HDF5 files')
-    parser.add_argument('--val_dir', type=str, required=True, help='Directory containing validation HDF5 files')
     
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)

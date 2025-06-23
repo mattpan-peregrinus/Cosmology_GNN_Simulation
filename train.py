@@ -14,7 +14,6 @@ from config import get_config
 from dataloader import SequenceDataset 
 from data_utils import preprocess
 from graph_network import EncodeProcessDecode  
-from validation_utils import get_train_val_datasets
 from validation import validate
 import h5py
 import matplotlib.pyplot as plt
@@ -118,15 +117,13 @@ def train():
         window_size=args.window_size,
         metadata=args.metadata,
         augment=args.augment_prob > 0,
-        augment_prob=args.augment_prob,
-        multi_simulation=True
+        augment_prob=args.augment_prob
     )
     val_dataset = SequenceDataset(
         paths=args.val_dir,
         window_size=args.window_size,
         metadata=args.metadata,
-        augment=False,
-        multi_simulation=True
+        augment=False
     )
     
     # Obtain dt and box_size from the metadata
@@ -252,12 +249,13 @@ def train():
             temp_rate_loss_total += temp_rate_loss.item()
             count += 1
             
-            if count % 5 == 0:
+            # Only update the progress bar every 10 batches
+            if count % 10 == 0 or count == len(train_loader):
                 bar.set_postfix({
-                "loss": combined_loss.item(), 
-                "avg_loss": total_loss / count,
-                "acc_loss": acc_loss.item(),
-                "temp_rate_loss": temp_rate_loss.item()
+                    "loss": combined_loss.item(), 
+                    "avg_loss": total_loss / count,
+                    "acc_loss": acc_loss.item(),
+                    "temp_rate_loss": temp_rate_loss.item()
                 })
             
             global_step += 1
