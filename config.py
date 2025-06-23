@@ -7,7 +7,7 @@ def get_config():
     parser = argparse.ArgumentParser(description='Cosmology GNN Simulation')
     
     # Necessary args
-    parser.add_argument('--dataset_path', type=str, required=True, help='Path to dataset file')
+    # parser.add_argument('--dataset_path', type=str, required=True, help='Path to dataset file')
     parser.add_argument('--metadata_path', type=str, required=True, help='Path to metadata file')
     parser.add_argument('--output_dir', type=str, default='model_output', help='Path to output directory')
     
@@ -37,11 +37,15 @@ def get_config():
     parser.add_argument('--acc_loss_weight', type=float, default=1.0, help='Weight for acceleration loss in combined loss')
     
     
-    parser.add_argument('--val_split', type=float, default=0.2, help='Fraction of data to use for validation')
+    # Remove old arguments
+    # parser.add_argument('--val_split', type=float, default=0.2, help='Fraction of data to use for validation')
     parser.add_argument('--plots_dir', type=str, default='plots', help='Subdirectory for saving plots')
     parser.add_argument('--pretrained_model', type=str, default=None, help='Path to pretrained model for fine-tuning')
     parser.add_argument('--test_data_path', type=str, default=None, help='Path to test data for relative error evaluation')
-    parser.add_argument('--multi_simulation', type=bool, default=False, help='Enable multi-simulation mode for training on multiple simulation files (default: False)')
+    
+    # Add new arguments
+    parser.add_argument('--train_dir', type=str, required=True, help='Directory containing training HDF5 files')
+    parser.add_argument('--val_dir', type=str, required=True, help='Directory containing validation HDF5 files')
     
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)

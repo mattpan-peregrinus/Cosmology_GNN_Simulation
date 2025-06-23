@@ -113,15 +113,20 @@ def train():
     plots_dir = os.path.join(args.output_dir, 'plots')
     os.makedirs(plots_dir, exist_ok=True)
     
-    train_dataset, val_dataset = get_train_val_datasets(
-        data_path=args.dataset_path,
+    train_dataset = SequenceDataset(
+        paths=args.train_dir,
         window_size=args.window_size,
         metadata=args.metadata,
-        val_split=0.2,  
-        augment=args.augment_prob > 0, 
+        augment=args.augment_prob > 0,
         augment_prob=args.augment_prob,
-        seed=args.seed,
-        multi_simulation=args.multi_simulation
+        multi_simulation=True
+    )
+    val_dataset = SequenceDataset(
+        paths=args.val_dir,
+        window_size=args.window_size,
+        metadata=args.metadata,
+        augment=False,
+        multi_simulation=True
     )
     
     # Obtain dt and box_size from the metadata
