@@ -25,67 +25,68 @@ def load_model(model_path, args):
 def rollout(model, data, metadata, noise_std, dt, box_size, window_size=6):
     device = next(model.parameters()).device
     model.eval()
+    
+    with torch.no_grad():
+        total_time = data["Coordinates"].size(0)
+        position_traj = data["Coordinates"][:window_size].permute(1, 0, 2).float() # -> [num_particles, window_size, 3]
+        # Handle temperature data - ensure it's 3D before permuting
+        temp_data = data["InternalEnergy"][:window_size]
+        if temp_data.dim() == 2:
+            temp_data = temp_data.unsqueeze(-1)  # Add feature dimension: [time_steps, num_particles, 1]
+        temp_traj = temp_data.permute(1, 0, 2).float() # -> [num_particles, window_size, 1]
 
-    total_time = data["Coordinates"].size(0)
-    position_traj = data["Coordinates"][:window_size].permute(1, 0, 2).float() # -> [num_particles, window_size, 3]
-    # Handle temperature data - ensure it's 3D before permuting
-    temp_data = data["InternalEnergy"][:window_size]
-    if temp_data.dim() == 2:
-        temp_data = temp_data.unsqueeze(-1)  # Add feature dimension: [time_steps, num_particles, 1]
-    temp_traj = temp_data.permute(1, 0, 2).float() # -> [num_particles, window_size, 1]
+        for time in range(total_time - window_size):
+            # Build a graph with no noise for rollout
+            input_positions = position_traj[:, -window_size:].permute(1, 0, 2) # -> [window_size, num_particles, 3]
+            input_temps = temp_traj[:, -window_size:].permute(1, 0, 2) # -> [window_size, num_particles, 1]
+            
+            graph = preprocess(
+                position_seq=input_positions, 
+                temperature_seq=input_temps,
+                metadata=metadata, 
+                noise_std=0.0, 
+                num_neighbors=16, 
+                box_size=box_size,
+                dt=dt
+            )
+            graph = graph.to(device)
 
-    for time in range(total_time - window_size):
-        # Build a graph with no noise for rollout
-        input_positions = position_traj[:, -window_size:].permute(1, 0, 2) # -> [window_size, num_particles, 3]
-        input_temps = temp_traj[:, -window_size:].permute(1, 0, 2) # -> [window_size, num_particles, 1]
-        
-        graph = preprocess(
-            position_seq=input_positions, 
-            temperature_seq=input_temps,
-            metadata=metadata, 
-            noise_std=0.0, 
-            num_neighbors=16, 
-            box_size=box_size,
-            dt=dt
-        )
-        graph = graph.to(device)
+            # Predict acceleration and temperature rate
+            predictions = model(graph)
+            acc_pred = predictions['acceleration'].cpu()
+            temp_rate_pred = predictions['temp_rate'].cpu()
 
-        # Predict acceleration and temperature rate
-        predictions = model(graph)
-        acc_pred = predictions['acceleration'].cpu()
-        temp_rate_pred = predictions['temp_rate'].cpu()
-
-        # Un-normalize acceleration
-        acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
-        acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
-        
-        acc_pred = acc_pred * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
-        
-        # Un-normalize temperature rate
-        temp_rate_std = torch.tensor(metadata["temp_rate_std"], dtype=torch.float32)
-        temp_rate_mean = torch.tensor(metadata["temp_rate_mean"], dtype=torch.float32)
-        temp_rate_pred = temp_rate_pred * torch.sqrt(temp_rate_std**2 + noise_std**2) + temp_rate_mean
-        
-        # Obtain the recent values of position, velocity, temperature
-        recent_position = position_traj[:, -1]
-        recent_velocity = (recent_position - position_traj[:, -2]) / dt
-        recent_temp = temp_traj[:, -1]
-        
-        # Integrate to new values, keeping in mind periodicity for position update
-        new_velocity = recent_velocity + acc_pred * dt
-        new_position = recent_position + new_velocity * dt
-        
-        # Perform modulo by box_size to keep particles within the box
-        new_position = torch.remainder(new_position, box_size)
-        new_temp = recent_temp + temp_rate_pred * dt
-        
-        position_traj = torch.cat((position_traj, new_position.unsqueeze(1)), dim=1) # -> [num_particles, time_steps + 1, 3]
-        temp_traj = torch.cat((temp_traj, new_temp.unsqueeze(1)), dim=1) # -> [num_particles, time_steps + 1, 1]
-        
-    return {
-        "Coordinates": position_traj.permute(1, 0, 2), # -> [total_time_steps, num_particles, 3]
-        "InternalEnergy": temp_traj.permute(1, 0, 2) # -> [total_time_steps, num_particles, 1]
-    }   
+            # Un-normalize acceleration
+            acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
+            acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
+            
+            acc_pred = acc_pred * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
+            
+            # Un-normalize temperature rate
+            temp_rate_std = torch.tensor(metadata["temp_rate_std"], dtype=torch.float32)
+            temp_rate_mean = torch.tensor(metadata["temp_rate_mean"], dtype=torch.float32)
+            temp_rate_pred = temp_rate_pred * torch.sqrt(temp_rate_std**2 + noise_std**2) + temp_rate_mean
+            
+            # Obtain the recent values of position, velocity, temperature
+            recent_position = position_traj[:, -1]
+            recent_velocity = (recent_position - position_traj[:, -2]) / dt
+            recent_temp = temp_traj[:, -1]
+            
+            # Integrate to new values, keeping in mind periodicity for position update
+            new_velocity = recent_velocity + acc_pred * dt
+            new_position = recent_position + new_velocity * dt
+            
+            # Perform modulo by box_size to keep particles within the box
+            new_position = torch.remainder(new_position, box_size)
+            new_temp = recent_temp + temp_rate_pred * dt
+            
+            position_traj = torch.cat((position_traj, new_position.unsqueeze(1)), dim=1) # -> [num_particles, time_steps + 1, 3]
+            temp_traj = torch.cat((temp_traj, new_temp.unsqueeze(1)), dim=1) # -> [num_particles, time_steps + 1, 1]
+            
+        return {
+            "Coordinates": position_traj.permute(1, 0, 2), # -> [total_time_steps, num_particles, 3]
+            "InternalEnergy": temp_traj.permute(1, 0, 2) # -> [total_time_steps, num_particles, 1]
+        }   
 
 def calculate_errors(rollout_data, ground_truth, window_size):
     pred_coords = rollout_data["Coordinates"][window_size:]
