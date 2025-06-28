@@ -1,8 +1,8 @@
-# Environment Setup (VERA @ CMU)
+# Environment Setup 
 
-This script creates a conda environment with all necessary dependencies for running the Cosmological GNN project.
+This script creates a conda environment with all necessary dependencies for running this project.
 
 ## Instructions
 
 ```bash
-bash setup_gnn_env.sh
+bash setup_env.sh
