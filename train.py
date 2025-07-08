@@ -20,28 +20,19 @@ import matplotlib.pyplot as plt
 
 def plot_losses(train_losses, val_losses, output_path, component_losses, learning_rates):
     # Create figure with subplots
-    fig = plt.figure(figsize=(15, 12))
-    gs = plt.GridSpec(3, 2, figure=fig, height_ratios=[2, 1, 1])
+    fig = plt.figure(figsize=(16, 14))
+    gs = plt.GridSpec(4, 2, figure=fig, height_ratios=[2, 1, 1, 1])
         
     # Plot 1: Combined training and validation loss (top span)
     ax1 = fig.add_subplot(gs[0, :])
         
-    # Plot 2-3: Component losses (middle row)
-    ax2 = fig.add_subplot(gs[1, 0])
-    ax3 = fig.add_subplot(gs[1, 1])
+    # Plot 2-4: Component losses (middle row)
+    ax2 = fig.add_subplot(gs[1, 0])  # Acceleration
+    ax3 = fig.add_subplot(gs[1, 1])  # Temperature Rate
+    ax4 = fig.add_subplot(gs[2, 0])  # Momentum Loss
         
-    # Plot 4: Learning rate (bottom span)
-    ax4 = fig.add_subplot(gs[2, :])
-    
-    epochs = range(1, len(train_losses) + 1)
-    ax1.plot(epochs, train_losses, 'b-', linewidth=2, label='Training Loss')
-    ax1.plot(epochs, val_losses, 'r-', linewidth=2, label='Validation Loss')
-    ax1.set_title('Training and Validation Loss per Epoch', fontsize=16)
-    ax1.set_xlabel('Epoch', fontsize=14)
-    ax1.set_ylabel('Loss', fontsize=14)
-    ax1.grid(True, linestyle='--', alpha=0.7)
-    ax1.legend(fontsize=12)
-    ax1.set_yscale('log')
+    # Plot 5: Learning rate (bottom span)
+    ax5 = fig.add_subplot(gs[3, :])
     
     epochs = range(1, len(train_losses) + 1)
     
@@ -73,23 +64,32 @@ def plot_losses(train_losses, val_losses, output_path, component_losses, learnin
     ax3.grid(True, linestyle='--', alpha=0.7)
     ax3.legend(fontsize=10)
     ax3.set_yscale('log')
-        
-    ax4.plot(epochs, learning_rates, 'g-', linewidth=3, label='Learning Rate')
-    ax4.set_title('Learning Rate Schedule (Exponential Decay)', fontsize=14)
+    
+    ax4.plot(epochs, component_losses['momentum']['train'], 'b-', linewidth=2, label='Train')
+    ax4.plot(epochs, component_losses['momentum']['val'], 'r-', linewidth=2, label='Validation')
+    ax4.set_title('Momentum Conservation Loss (PINN)', fontsize=14)
     ax4.set_xlabel('Epoch', fontsize=12)
-    ax4.set_ylabel('Learning Rate', fontsize=12)
+    ax4.set_ylabel('Momentum Loss', fontsize=12)
     ax4.grid(True, linestyle='--', alpha=0.7)
-    ax4.set_yscale('log')
     ax4.legend(fontsize=10)
-            
+    ax4.set_yscale('log')
+
+    ax5.plot(epochs, learning_rates, 'g-', linewidth=3, label='Learning Rate')
+    ax5.set_title('Learning Rate Schedule (Exponential Decay)', fontsize=14)
+    ax5.set_xlabel('Epoch', fontsize=12)
+    ax5.set_ylabel('Learning Rate', fontsize=12)
+    ax5.grid(True, linestyle='--', alpha=0.7)
+    ax5.set_yscale('log')
+    ax5.legend(fontsize=10)
+
     # Add text annotations for initial and final LR
     if len(learning_rates) > 0:
-        ax4.text(0.02, 0.95, f'Initial LR: {learning_rates[0]:.2e}', 
-                 transform=ax4.transAxes, fontsize=10, verticalalignment='top',
+        ax5.text(0.02, 0.95, f'Initial LR: {learning_rates[0]:.2e}', 
+                 transform=ax5.transAxes, fontsize=10, verticalalignment='top',
                  bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.7))
     if len(learning_rates) > 1:
-        ax4.text(0.02, 0.05, f'Current LR: {learning_rates[-1]:.2e}',
-                 transform=ax4.transAxes, fontsize=10, verticalalignment='bottom',
+        ax5.text(0.02, 0.05, f'Current LR: {learning_rates[-1]:.2e}',
+                 transform=ax5.transAxes, fontsize=10, verticalalignment='bottom',
                  bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.7))
     
     plt.tight_layout()
@@ -103,6 +103,12 @@ def load_pretrained_model(model, model_path):
     except Exception as e:
         print(f"Error loading pretrained model: {e}")
     return model
+
+def momentum_conservation_loss(accelerations, dt, momentum_weight):
+    velocity_changes = accelerations * dt
+    total_momentum_change = torch.sum(velocity_changes, dim=0)
+    momentum_loss = momentum_weight * torch.sum(total_momentum_change ** 2)
+    return momentum_loss
 
 def train():
     args = get_config()
@@ -177,13 +183,14 @@ def train():
     print(f"Learning rate will decay from {initial_lr} to {final_lr} over {args.num_epochs} epochs.")
     print(f"Decay rate: {decay_rate}")
     
-    loss_fn = torch.nn.MSELoss()
+    loss_fn = torch.nn.MSELoss() 
     
     train_losses = []
     val_losses = []
     component_losses = {
         'acceleration': {'train': [], 'val': []},
-        'temp_rate': {'train': [], 'val': []}
+        'temp_rate': {'train': [], 'val': []},
+        'momentum': {'train': [], 'val': []}
     }
     
     best_val_loss = float('inf')
@@ -199,6 +206,7 @@ def train():
         total_loss = 0.0
         acc_loss_total = 0.0
         temp_rate_loss_total = 0.0
+        momentum_loss_total = 0.0
         count = 0
 
         for batch in bar:
@@ -236,9 +244,13 @@ def train():
             acc_pred = predictions['acceleration']
             temp_rate_pred = predictions['temp_rate']
             
+            # Calculate losses 
             acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
             temp_rate_loss = loss_fn(temp_rate_pred, batch_graph.y_temp_rate)
-            combined_loss = args.acc_loss_weight * acc_loss + args.temp_rate_loss_weight * temp_rate_loss
+            momentum_loss = momentum_conservation_loss(acc_pred, dt, args.momentum_loss_weight)
+            combined_loss = (args.acc_loss_weight * acc_loss +
+                             args.temp_rate_loss_weight * temp_rate_loss +
+                             momentum_loss)
 
             # Backward pass
             optimizer.zero_grad()
@@ -248,6 +260,7 @@ def train():
             total_loss += combined_loss.item()
             acc_loss_total += acc_loss.item()
             temp_rate_loss_total += temp_rate_loss.item()
+            momentum_loss_total += momentum_loss.item()
             count += 1
             
             # Only update the progress bar every 10 batches
@@ -256,7 +269,8 @@ def train():
                     "loss": combined_loss.item(), 
                     "avg_loss": total_loss / count,
                     "acc_loss": acc_loss.item(),
-                    "temp_rate_loss": temp_rate_loss.item()
+                    "temp_rate_loss": temp_rate_loss.item(),
+                    "momentum_loss": momentum_loss.item()
                 })
             
             global_step += 1
@@ -264,10 +278,12 @@ def train():
         avg_train_loss = total_loss / count if count > 0 else float('inf')
         avg_acc_train_loss = acc_loss_total / count if count > 0 else float('inf')
         avg_temp_rate_train_loss = temp_rate_loss_total / count if count > 0 else float('inf')
+        avg_momentum_train_loss = momentum_loss_total / count if count > 0 else float('inf')
         
         train_losses.append(avg_train_loss)
         component_losses['acceleration']['train'].append(avg_acc_train_loss)
         component_losses['temp_rate']['train'].append(avg_temp_rate_train_loss)
+        component_losses['momentum']['train'].append(avg_momentum_train_loss)
         
         val_loss, val_component_losses = validate(
             simulator, 
@@ -276,8 +292,9 @@ def train():
             loss_fn, 
             args.acc_loss_weight, 
             args.temp_rate_loss_weight, 
+            args.momentum_loss_weight,
             args.metadata, 
-            0,  #setting noise sd to zero, for now
+            0,  #setting noise sd to zero
             args.num_neighbors,
             dt = dt,
             box_size = box_size
@@ -286,6 +303,7 @@ def train():
         val_losses.append(val_loss)
         component_losses['acceleration']['val'].append(val_component_losses['acceleration'])
         component_losses['temp_rate']['val'].append(val_component_losses['temp_rate'])
+        component_losses['momentum']['val'].append(val_component_losses['momentum'])
         
         # Update learning rate 
         scheduler.step()
@@ -297,7 +315,9 @@ def train():
               f"train acc loss = {avg_acc_train_loss:.6f}, "
               f"val acc loss = {val_component_losses['acceleration']:.6f}, "
               f"train temp_rate loss = {avg_temp_rate_train_loss:.6f}, "
-              f"val temp_rate loss = {val_component_losses['temp_rate']:.6f}")
+              f"val temp_rate loss = {val_component_losses['temp_rate']:.6f}, "
+              f"train momentum loss = {avg_momentum_train_loss:.6f}, "
+              f"val momentum loss = {val_component_losses['momentum']:.6f}")
         
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -347,7 +367,9 @@ def train():
             'acc_train': component_losses['acceleration']['train'],
             'acc_val': component_losses['acceleration']['val'],
             'temp_rate_train': component_losses['temp_rate']['train'],
-            'temp_rate_val': component_losses['temp_rate']['val']
+            'temp_rate_val': component_losses['temp_rate']['val'], 
+            'momentum_train': component_losses['momentum']['train'],
+            'momentum_val': component_losses['momentum']['val']
         },
         'best_epoch': best_epoch,
         'best_val_loss': best_val_loss,
