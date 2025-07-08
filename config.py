@@ -14,7 +14,7 @@ def get_config():
     
     # Training / hardware args 
     parser.add_argument('--num_neighbors', type=int, default=16, help='Number of nearest neighbors to consider for each node')  
-    parser.add_argument('--batch_size', type=int, default=2, help='Batch size for training')
+    parser.add_argument('--batch_size', type=int, default=1, help='Batch size for training')
     parser.add_argument('--window_size', type=int, default=5, help='Number of time steps to use for input sequence')
     parser.add_argument('--latent_size', type=int, default=128, help='Size of latent representations')     
     parser.add_argument('--mlp_hidden_size', type=int, default=128, help='Hidden size for MLPs')           
@@ -24,13 +24,13 @@ def get_config():
     parser.add_argument('--noise_std', type=float, default=0.0, help='Standard deviation of noise added to positions') # Usually train with noise sd of 0.0003
     parser.add_argument('--num_epochs', type=int, default=10, help='Number of epochs to train')
     parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate for optimizer')
-    parser.add_argument('--final_learning_rate', type=float, default=1e-6, help='Final learning rate for optimizer')
+    parser.add_argument('--final_learning_rate', type=float, default=1e-4, help='Final learning rate for optimizer')
     parser.add_argument('--weight_decay', type=float, default=0, help='Weight decay for optimizer')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use for training')
     parser.add_argument('--num_workers', type=int, default=0, help='Number of worker processes for data loading')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--save_every', type=int, default=10, help='Save model every N epochs')
-    parser.add_argument('--augment_prob', type=float, default=0.0, help='Probability of applying augmentations (0.0-1.0)')
+    parser.add_argument('--augment_prob', type=float, default=0.1, help='Probability of applying augmentations (0.0-1.0)')
     parser.add_argument('--temp_rate_loss_weight', type=float, default=1.0, help='Weight for temperature_rate loss in combined loss')
     parser.add_argument('--acc_loss_weight', type=float, default=1.0, help='Weight for acceleration loss in combined loss')
     

@@ -11,10 +11,9 @@ class SequenceDataset(Dataset):
         self,
         paths,
         window_size,
-        metadata,  
-        norms=None,
-        augment=False,
-        augment_prob=0.1,
+        metadata, 
+        augment,
+        augment_prob,  
         start_indices=None,  
         **kwargs,
     ):
@@ -66,8 +65,7 @@ class SequenceDataset(Dataset):
         self.metadata = metadata
         self.dt = metadata["dt"]
         self.box_size = metadata["box_size"]
-        self.norms = norms
-        self.augment = augment
+        self.augment = augment  
         self.augment_prob = augment_prob
         self.window_size = window_size
         # Assertion 1: Check if the number of snapshots is larger than the window size

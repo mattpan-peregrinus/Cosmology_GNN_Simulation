@@ -123,7 +123,8 @@ def train():
         paths=args.val_dir,
         window_size=args.window_size,
         metadata=args.metadata,
-        augment=False
+        augment=False,
+        augment_prob=0.0
     )
     
     # Obtain dt and box_size from the metadata
