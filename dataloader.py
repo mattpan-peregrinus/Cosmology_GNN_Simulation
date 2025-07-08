@@ -136,13 +136,6 @@ class SequenceDataset(Dataset):
         
         # Apply augmentation if enabled 
         if self.augment:
-            # Time reversal symmetry
-            if np.random.random() < self.augment_prob:
-                flip_dim = 0
-                for key, field in in_fields.items():
-                    if key == "Velocities":
-                        field = -1 * field
-                    in_fields[key] = torch.flip(field, [flip_dim])
 
             # Random permutation of xyz axis
             if np.random.random() < self.augment_prob:
