@@ -1,4 +1,4 @@
-# Cosmological Physics Simulation with Graph Neural Networks
+# Cosmological Physics Simulation with GNNs
 
 Learning cosmological particle dynamics using Graph Neural Networks (GNNs). This system implements an Encode-Process-Decode architecture to predict both particle accelerations and temperature changes in physical simulations.
 
