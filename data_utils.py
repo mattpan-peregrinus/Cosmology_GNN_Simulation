@@ -61,9 +61,14 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
     if temperature_seq.shape[0] == position_seq.shape[1] and temperature_seq.shape[1] == position_seq.shape[0]:
         temperature_seq = temperature_seq.permute(1, 0, 2)    
     
-    # Apply noise
+    # Apply noise to position
     position_noise = generate_noise(position_seq, noise_std)
     position_seq = position_seq + position_noise
+    
+    # Apply noise to temperature
+    temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
+    temperature_noise = torch.randn_like(temperature_seq) * noise_std * temp_std
+    temperature_seq = temperature_seq + temperature_noise
 
     # Compute velocities
     recent_position = position_seq[:, -1]
@@ -97,12 +102,10 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
     normal_velocity_seq = (velocity_seq - vel_mean) / torch.sqrt(vel_std**2 + noise_std**2)
     
     # Process temperature features
-    if "temp_mean" in metadata and "temp_std" in metadata:
-        temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
-        temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
-        normal_temp_seq = (temperature_seq - temp_mean) / torch.sqrt(temp_std**2 + noise_std**2)
-    else:
-        normal_temp_seq = temperature_seq
+    temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
+    temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
+    normal_temp_seq = (temperature_seq - temp_mean) / torch.sqrt(temp_std**2 + (noise_std * temp_std)**2)
+   
     
     # Flatten features for input to the model
     flat_velocity = normal_velocity_seq.reshape(normal_velocity_seq.size(0), -1)
@@ -176,11 +179,12 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
         # Calculate temperature change rate (per unit time)
         temp_rate = (target_temperature - recent_temperature) / dt
         
-        if "temp_rate_mean" in metadata and "temp_rate_std" in metadata:
-            # Scale temperature change statistics by dt
-            temp_rate_mean = torch.tensor(metadata["temp_rate_mean"], dtype=torch.float32)
-            temp_rate_std = torch.tensor(metadata["temp_rate_std"], dtype=torch.float32)
-            temp_rate = (temp_rate - temp_rate_mean) / torch.sqrt(temp_rate_std**2 + noise_std**2)
+        # Scale temperature change statistics by dt
+        temp_rate_mean = torch.tensor(metadata["temp_rate_mean"], dtype=torch.float32)
+        temp_rate_std = torch.tensor(metadata["temp_rate_std"], dtype=torch.float32)
+        temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
+        noise_term = (noise_std * temp_std) / dt  # Scale by dt since we're looking at rates
+        temp_rate = (temp_rate - temp_rate_mean) / torch.sqrt(temp_rate_std**2 + noise_term**2)
                 
 
     # Build a PyG Data object
