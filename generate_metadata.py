@@ -19,21 +19,25 @@ def generate_metadata(dataset_path, output_path):
         temp_rate_mean = np.mean(temp_rate, axis=(0, 1))
         temp_rate_std = np.std(temp_rate, axis=(0, 1))
         
-        vel_mean = np.mean(velocities, axis=(0, 1))
-        vel_std = np.std(velocities, axis=(0, 1))
+        vel_mean_3d = np.mean(velocities, axis=(0, 1))  
+        vel_std_3d = np.std(velocities, axis=(0, 1))    
+        vel_mean = float(np.mean(vel_mean_3d))  
+        vel_std = float(np.mean(vel_std_3d))
         
-        acc_mean = np.mean(accelerations, axis=(0, 1))
-        acc_std = np.std(accelerations, axis=(0, 1))
+        acc_mean_3d = np.mean(accelerations, axis=(0, 1))  
+        acc_std_3d = np.std(accelerations, axis=(0, 1))   
+        acc_mean = float(np.mean(acc_mean_3d)) 
+        acc_std = float(np.mean(acc_std_3d))  
         
         metadata = {
             "temp_mean": temp_mean.tolist(),
             "temp_std": temp_std.tolist(),
             "temp_rate_mean": temp_rate_mean.tolist(),
             "temp_rate_std": temp_rate_std.tolist(),
-            "vel_mean": vel_mean.tolist(),
-            "vel_std": vel_std.tolist(),
-            "acc_mean": acc_mean.tolist(),
-            "acc_std": acc_std.tolist(),
+            "vel_mean": vel_mean,
+            "vel_std": vel_std,
+            "acc_mean": acc_mean,
+            "acc_std": acc_std,
             "box_size": box_size,
             "dt": dt
         }
