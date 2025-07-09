@@ -88,9 +88,9 @@ def rollout(model, data, metadata, noise_std, dt, box_size, window_size=6):
             "InternalEnergy": temp_traj.permute(1, 0, 2) # -> [total_time_steps, num_particles, 1]
         }   
 
-def calculate_errors(rollout_data, ground_truth, window_size):
-    pred_coords = rollout_data["Coordinates"][window_size:]
-    true_coords = ground_truth["Coordinates"][window_size:window_size+len(pred_coords)]
+def calculate_errors(rollout_data, ground_truth):
+    pred_coords = rollout_data["Coordinates"][:]
+    true_coords = ground_truth["Coordinates"][:]
     
     # Calculate position errors
     pos_errors = []
@@ -102,8 +102,8 @@ def calculate_errors(rollout_data, ground_truth, window_size):
     
     # Calculate temperature errors
     temp_errors = []
-    pred_temps = rollout_data["InternalEnergy"][window_size:]
-    true_temps = ground_truth["InternalEnergy"][window_size:window_size+len(pred_temps)]
+    pred_temps = rollout_data["InternalEnergy"][:].squeeze()
+    true_temps = ground_truth["InternalEnergy"][:].squeeze()
         
     for t in range(len(pred_temps)):
         if t >= len(true_temps):
@@ -118,16 +118,17 @@ def calculate_errors(rollout_data, ground_truth, window_size):
         "mean_temperature_error": np.mean(temp_errors) if temp_errors else None
     }
 
-def plot_errors(errors, output_path):
+def plot_errors(errors, output_path, window_size):
     fig, ax = plt.subplots(figsize=(10, 6))
     
     # Plot position and temperature errors
     ax.plot(errors["position_errors"], 'b-', linewidth=2, label='Position MSE')
     ax.plot(errors["temperature_errors"], 'r-', linewidth=2, label='Temperature MSE')
     
-    ax.set_title('Error Over Time', fontsize=14)
+    ax.set_title('Rollout Error', fontsize=14)
     ax.set_xlabel('Timestep', fontsize=12)
     ax.set_ylabel('Mean Squared Error', fontsize=12)
+    plt.axvline(x=window_size, color='r', linestyle='--', linewidth=2, label='Rollout start')
     ax.grid(True, linestyle='--', alpha=0.7)
     ax.legend(fontsize=12)
     
@@ -190,14 +191,14 @@ def main():
     print("Calculating errors")
     errors = calculate_errors(
         rollout_data=rollout_data,
-        ground_truth=ground_truth,
-        window_size=args.window_size
+        ground_truth=ground_truth
     )
     
     print("Plotting errors")
     plot_errors(
         errors=errors,
-        output_path=os.path.join(args.output_dir, "errors.png")
+        output_path=os.path.join(args.output_dir, "errors.png"),
+        window_size=args.window_size
     )
     
     coords_path = os.path.join(args.output_dir, "rollout_coordinates.npy")
