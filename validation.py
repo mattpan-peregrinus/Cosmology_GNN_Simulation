@@ -2,11 +2,18 @@ import torch
 import torch_geometric as pyg
 from data_utils import preprocess
 
-def momentum_conservation_loss(accelerations, dt, momentum_weight):
+def momentum_conservation_loss(accelerations, batch_graph, dt, momentum_weight):
     velocity_changes = accelerations * dt
-    total_momentum_change = torch.sum(velocity_changes, dim=0)
-    momentum_loss = momentum_weight * torch.sum(total_momentum_change ** 2)
-    return momentum_loss
+    total_momentum_loss = 0.0
+    
+    for i in range(batch_graph.num_graphs):
+        graph_mask = (batch_graph.batch == i)
+        graph_accelerations = velocity_changes[graph_mask]
+        total_momentum_change = torch.sum(graph_accelerations, dim=0)
+        graph_momentum_loss = torch.sum(total_momentum_change ** 2)
+        total_momentum_loss += graph_momentum_loss
+        
+    return momentum_weight * total_momentum_loss / batch_graph.num_graphs
 
 def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_rate_loss_weight, momentum_loss_weight, metadata, noise_std, num_neighbors, dt, box_size):
     model.eval()  
@@ -55,7 +62,7 @@ def validate(model, val_loader, device, loss_fn, acc_loss_weight, temp_rate_loss
             
             acc_loss = loss_fn(acc_pred, batch_graph.y_acc)
             temp_rate_loss = loss_fn(temp_rate_pred, batch_graph.y_temp_rate)
-            momentum_loss = momentum_conservation_loss(acc_pred, dt, momentum_loss_weight)
+            momentum_loss = momentum_conservation_loss(acc_pred, batch_graph, dt, momentum_loss_weight)
             
             combined_loss = (acc_loss_weight * acc_loss + 
                            temp_rate_loss_weight * temp_rate_loss + 
