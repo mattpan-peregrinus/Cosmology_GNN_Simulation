@@ -5,6 +5,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 import argparse
+import random
 
 from graph_network import EncodeProcessDecode
 from data_utils import preprocess
@@ -153,9 +154,15 @@ def main():
     parser.add_argument('--mlp_num_hidden_layers', type=int, default=2, help='Model MLP layers')
     parser.add_argument('--num_message_passing_steps', type=int, default=10, help='Model message passing steps')
     parser.add_argument('--output_size', type=int, default=3, help='Model output size (3 for 3D)')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     
     args = parser.parse_args()
 
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    random.seed(args.seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     os.makedirs(args.output_dir, exist_ok=True)
     print(f"Loading metadata from {args.metadata_path}")
     with open(args.metadata_path, 'r') as f:
