@@ -129,8 +129,11 @@ def plot_errors(errors, output_path, window_size):
     ax.set_title('Rollout Error', fontsize=14)
     ax.set_xlabel('Timestep', fontsize=12)
     ax.set_ylabel('Mean Squared Error', fontsize=12)
-    plt.axvline(x=window_size, color='r', linestyle='--', linewidth=2, label='Rollout start')
+    plt.axvline(x=window_size, color='g', linestyle='--', linewidth=2, label='Rollout Start')
+    # Really it's box_size / 6 here
+    plt.axhline(y=1/6, color='black', linestyle='--', linewidth=2, label='Uncorrelated Position MSE')
     ax.grid(True, linestyle='--', alpha=0.7)
+    ax.set_yscale('log')
     ax.legend(fontsize=12)
     
     plt.tight_layout()
