@@ -33,17 +33,41 @@ def extend_positions_torch(positions, box_size):
     return extended_positions, mapping
 
 
-def generate_noise(position_seq, noise_std):
+def generate_position_noise(position_seq, noise_std, box_size, dt):
     position_seq = position_seq.float()
     """Generate random-walk noise for a trajectory."""
-    velocity_seq = position_seq[:, 1:] - position_seq[:, :-1]
+    displacement_seq = position_seq[:, 1:] - position_seq[:, :-1]
+    displacement_seq[displacement_seq < -1*box_size/2] += box_size
+    displacement_seq[displacement_seq > box_size/2] -= box_size
+    
+    velocity_seq = displacement_seq / dt
+
     time_steps = velocity_seq.size(1)
+    # Sequence of random values from the same distribution
     velocity_noise = torch.randn_like(velocity_seq, dtype = torch.float32) * (noise_std / (time_steps ** 0.5))
+    # Accumulate them as a random walk to get our real velocity noise
     velocity_noise = velocity_noise.cumsum(dim=1)
-    position_noise = velocity_noise.cumsum(dim=1)
+    # Accumulate again and multiply by dt to get our position noise
+    position_noise = velocity_noise.cumsum(dim=1) * dt
+    # Add zero position noise at the first time step
     position_noise = torch.cat((torch.zeros_like(position_noise, dtype = torch.float32)[:, 0:1], position_noise), dim=1)
     return position_noise
 
+# Same as above but no periodicity concerns, and factor in temp std
+def generate_temperature_noise(temperature_seq, noise_std, temp_std):
+    temperature_seq = temperature_seq.float()
+    """Generate random-walk noise for a trajectory."""
+    temp_rate_seq = temperature_seq[:, 1:] - temperature_seq[:, :-1]
+    time_steps = temp_rate_seq.size(1)
+    # Sequence of random values from the same distribution
+    temp_rate_noise = torch.randn_like(temp_rate_seq, dtype = torch.float32) * (noise_std * temp_std / (time_steps ** 0.5))
+    # Accumulate them as a random walk to get our real temp_rate noise
+    temp_rate_noise = temp_rate_noise.cumsum(dim=1)
+    # Accumulate again to get our temp noise
+    temp_noise = temp_rate_noise.cumsum(dim=1)
+    # Add zero noise at first time step
+    temp_noise = torch.cat((torch.zeros_like(temp_noise, dtype = torch.float32)[:, 0:1], temp_noise), dim=1)
+    return temp_noise
 
 def preprocess(position_seq, temperature_seq, metadata, target_position=None, target_temperature=None, noise_std=0.0, num_neighbors=16, dt=None, box_size=None):
     """Preprocess a trajectory and construct a PyG Data object with both position and temperature target."""
@@ -57,17 +81,19 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
     temperature_seq = temperature_seq.float()
     
     # Rearrange dimensions if needed
+    # position_seq.shape = [num_particles, num_timesteps, 3]
+    # temperature_seq.shape = [num_particles, num_timesteps, 1]
     position_seq = position_seq.permute(1, 0, 2)    
     if temperature_seq.shape[0] == position_seq.shape[1] and temperature_seq.shape[1] == position_seq.shape[0]:
-        temperature_seq = temperature_seq.permute(1, 0, 2)    
+        temperature_seq = temperature_seq.permute(1, 0, 2)
     
-    # Apply noise to position
-    position_noise = generate_noise(position_seq, noise_std)
-    position_seq = position_seq + position_noise
+    # Apply noise to position, wrap around in periodic box
+    position_noise = generate_position_noise(position_seq, noise_std, box_size, dt)
+    position_seq = torch.remainder(position_seq + position_noise, box_size)
     
     # Apply noise to temperature
     temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
-    temperature_noise = torch.randn_like(temperature_seq) * noise_std * temp_std
+    temperature_noise = generate_temperature_noise(temperature_seq, noise_std, temp_std)
     temperature_seq = temperature_seq + temperature_noise
 
     # Compute velocities
@@ -83,6 +109,7 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
     # Get recent temperature
     recent_temperature = temperature_seq[:, -1] 
     
+    # target_temperature.shape = [num_particles, 1]
     if target_temperature is not None:
         target_temperature = target_temperature.float()
         if target_temperature.dim() == 3:  # [1, num_particles, 1]
@@ -99,12 +126,12 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
     # Node-level features
     vel_mean = torch.tensor(metadata["vel_mean"], dtype=torch.float32)
     vel_std = torch.tensor(metadata["vel_std"], dtype=torch.float32)
-    normal_velocity_seq = (velocity_seq - vel_mean) / torch.sqrt(vel_std**2 + noise_std**2)
+    normal_velocity_seq = (velocity_seq - vel_mean) / vel_std
     
     # Process temperature features
     temp_mean = torch.tensor(metadata["temp_mean"], dtype=torch.float32)
     temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
-    normal_temp_seq = (temperature_seq - temp_mean) / torch.sqrt(temp_std**2 + (noise_std * temp_std)**2)
+    normal_temp_seq = (temperature_seq - temp_mean) / temp_std
    
     
     # Flatten features for input to the model
@@ -141,50 +168,50 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
 
     # Ground truth for training (acceleration)
     if target_position is not None:
+        # target_position.shape = [num_particles, 3]
         if target_position.dim() == 3:  # [1, num_particles, 3]
             target_position = target_position.permute(1, 0, 2)  # -> [num_particles, 1, 3]
             target_position = target_position.squeeze(1)  # -> [num_particles, 3]
         elif target_position.dim() == 2 and target_position.shape[0] != recent_position.shape[0]:
             target_position = target_position.reshape(-1, 3)
         
-        last_velocity = velocity_seq[:, -1]  # Already scaled by dt
+        # Get latest position noise term
+        assert(position_noise.dim() == 3)
+        noise_term = position_noise[:, -1]
+        # Add this to the target position
+        target_position += noise_term
 
         # Compute the next velocity, taking into account periodicity
         next_displacement = target_position - recent_position
         next_displacement[next_displacement < -1*box_size/2] += box_size
         next_displacement[next_displacement > box_size/2] -= box_size
         next_velocity = next_displacement / dt
-                                
-        # Apply noise correction
-        if position_noise.dim() > 2:
-            noise_term = position_noise[:, -1]
-        else:
-            noise_term = position_noise[-1]
-        
-        next_velocity = next_velocity + noise_term/dt  # Scale noise by dt
-        
+
         # Calculate acceleration (change in velocity over time)
-        acceleration = (next_velocity - last_velocity) / dt  # Scale by dt again for acceleration
+        last_velocity = velocity_seq[:, -1]
+        acceleration = (next_velocity - last_velocity) / dt 
         
         # Normalize acceleration
         acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
         acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
-
-        acceleration = (acceleration - acc_mean) / torch.sqrt(acc_std**2 + noise_std**2)
+        acceleration = (acceleration - acc_mean) / acc_std
         
     if target_temperature is not None:
         if target_temperature.dim() == 3:
             target_temperature = target_temperature.squeeze(1)
         
+        # Get latest temperature noise term
+        noise_term = temperature_noise[:, -1]
+        # Add this to target temperature
+        target_temperature += noise_term
+
         # Calculate temperature change rate (per unit time)
         temp_rate = (target_temperature - recent_temperature) / dt
         
-        # Scale temperature change statistics by dt
+        # Normalize temp_rate
         temp_rate_mean = torch.tensor(metadata["temp_rate_mean"], dtype=torch.float32)
         temp_rate_std = torch.tensor(metadata["temp_rate_std"], dtype=torch.float32)
-        temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
-        noise_term = (noise_std * temp_std) / dt  # Scale by dt since we're looking at rates
-        temp_rate = (temp_rate - temp_rate_mean) / torch.sqrt(temp_rate_std**2 + noise_term**2)
+        temp_rate = (temp_rate - temp_rate_mean) / temp_rate_std
                 
 
     # Build a PyG Data object
