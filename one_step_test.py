@@ -84,12 +84,12 @@ def validate_one_step(model, data_path, metadata, window_size, device, num_neigh
             # Un-normalize acceleration
             acc_std = torch.tensor(metadata["acc_std"], dtype=torch.float32)
             acc_mean = torch.tensor(metadata["acc_mean"], dtype=torch.float32)
-            acc_pred = acc_pred * torch.sqrt(acc_std**2 + noise_std**2) + acc_mean
+            acc_pred = (acc_pred * acc_std) + acc_mean
             
             # Un-normalize temperature rate
             temp_rate_std = torch.tensor(metadata["temp_rate_std"], dtype=torch.float32)
             temp_rate_mean = torch.tensor(metadata["temp_rate_mean"], dtype=torch.float32)
-            temp_rate_pred = temp_rate_pred * torch.sqrt(temp_rate_std**2 + noise_std**2) + temp_rate_mean
+            temp_rate_pred = (temp_rate_pred * temp_rate_std) + temp_rate_mean
             
             # Obtain the recent values of position, velocity, temperature
             recent_position = coords_seq[-1] 
