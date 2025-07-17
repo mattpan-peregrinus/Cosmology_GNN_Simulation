@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 def plot_losses(train_losses, val_losses, output_path, component_losses, learning_rates):
     # Create figure with subplots
     fig = plt.figure(figsize=(16, 14))
-    gs = plt.GridSpec(4, 2, figure=fig, height_ratios=[2, 1, 1, 1])
+    gs = plt.GridSpec(3, 2, figure=fig, height_ratios=[2, 1, 1])
         
     # Plot 1: Combined training and validation loss (top span)
     ax1 = fig.add_subplot(gs[0, :])
@@ -30,9 +30,9 @@ def plot_losses(train_losses, val_losses, output_path, component_losses, learnin
     ax2 = fig.add_subplot(gs[1, 0])  # Acceleration
     ax3 = fig.add_subplot(gs[1, 1])  # Temperature Rate
     ax4 = fig.add_subplot(gs[2, 0])  # Momentum Loss
-        
-    # Plot 5: Learning rate (bottom span)
-    ax5 = fig.add_subplot(gs[3, :])
+
+    # Plot 5: Learning rate (bottom right)
+    ax5 = fig.add_subplot(gs[2, 1])
     
     epochs = range(1, len(train_losses) + 1)
     
@@ -335,13 +335,14 @@ def train():
             torch.save(simulator.state_dict(), best_model_path)
             print(f"New best model saved with validation loss: {val_loss:.6f}")
 
-        plot_losses(
-            train_losses, 
-            val_losses, 
-            os.path.join(plots_dir, f'losses_epoch_{epoch}.png'),
-            component_losses,
-            train_learning_rates
-        )
+        if epoch % 5 == 0:
+            plot_losses(
+                train_losses, 
+                val_losses, 
+                os.path.join(plots_dir, f'losses_epoch_{epoch}.png'),
+                component_losses,
+                train_learning_rates
+            )
        
         # Periodic checkpoints        
         if (epoch + 1) % args.save_every == 0 or epoch == args.num_epochs - 1:
