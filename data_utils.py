@@ -44,13 +44,11 @@ def generate_position_noise(position_seq, noise_std, box_size, dt):
 
     time_steps = velocity_seq.size(1)
     # Sequence of random values from the same distribution
-    velocity_noise = torch.randn_like(velocity_seq, dtype = torch.float32) * (noise_std / (time_steps ** 0.5))
+    velocity_noise = torch.randn_like(velocity_seq, dtype=torch.float32) * noise_std
     # Accumulate them as a random walk to get our real velocity noise
-    velocity_noise = velocity_noise.cumsum(dim=1)
-    # Accumulate again and multiply by dt to get our position noise
-    position_noise = velocity_noise.cumsum(dim=1) * dt
+    position_noise_increments = velocity_noise.cumsum(dim=1) * dt
     # Add zero position noise at the first time step
-    position_noise = torch.cat((torch.zeros_like(position_noise, dtype = torch.float32)[:, 0:1], position_noise), dim=1)
+    position_noise = torch.cat([torch.zeros_like(position_noise_increments[:, 0:1]), position_noise_increments], dim=1)
     return position_noise
 
 # Same as above but no periodicity concerns, and factor in temp std
@@ -60,13 +58,11 @@ def generate_temperature_noise(temperature_seq, noise_std, temp_std, dt):
     temp_rate_seq = (temperature_seq[:, 1:] - temperature_seq[:, :-1]) / dt
     time_steps = temp_rate_seq.size(1)
     # Sequence of random values from the same distribution
-    temp_rate_noise = torch.randn_like(temp_rate_seq, dtype = torch.float32) * (noise_std * temp_std / (time_steps ** 0.5))
+    temp_rate_noise = torch.randn_like(temp_rate_seq, dtype=torch.float32) * (noise_std * temp_std)
     # Accumulate them as a random walk to get our real temp_rate noise
-    temp_rate_noise = temp_rate_noise.cumsum(dim=1)
-    # Accumulate again to get our temp noise
-    temp_noise = temp_rate_noise.cumsum(dim=1) * dt
+    temp_noise_increments = temp_rate_noise.cumsum(dim=1) * dt
     # Add zero noise at first time step
-    temp_noise = torch.cat((torch.zeros_like(temp_noise, dtype = torch.float32)[:, 0:1], temp_noise), dim=1)
+    temp_noise = torch.cat([torch.zeros_like(temp_noise_increments[:, 0:1]), temp_noise_increments], dim=1)
     return temp_noise
 
 def preprocess(position_seq, temperature_seq, metadata, target_position=None, target_temperature=None, noise_std=0.0, num_neighbors=16, dt=None, box_size=None):
@@ -174,12 +170,6 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
             target_position = target_position.squeeze(1)  # -> [num_particles, 3]
         elif target_position.dim() == 2 and target_position.shape[0] != recent_position.shape[0]:
             target_position = target_position.reshape(-1, 3)
-        
-        # Get latest position noise term
-        assert(position_noise.dim() == 3)
-        noise_term = position_noise[:, -1]
-        # Add this to the target position
-        target_position += noise_term
 
         # Compute the next velocity, taking into account periodicity
         next_displacement = target_position - recent_position
@@ -199,11 +189,6 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
     if target_temperature is not None:
         if target_temperature.dim() == 3:
             target_temperature = target_temperature.squeeze(1)
-        
-        # Get latest temperature noise term
-        noise_term = temperature_noise[:, -1]
-        # Add this to target temperature
-        target_temperature += noise_term
 
         # Calculate temperature change rate (per unit time)
         temp_rate = (target_temperature - recent_temperature) / dt
