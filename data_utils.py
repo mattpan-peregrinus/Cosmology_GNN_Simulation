@@ -54,13 +54,13 @@ def generate_position_noise(position_seq, noise_std, box_size, dt):
     return position_noise
 
 # Same as above but no periodicity concerns, and factor in temp std
-def generate_temperature_noise(temperature_seq, noise_std, temp_std, dt):
+def generate_temperature_noise(temperature_seq, noise_std, temp_rate_std, dt):
     temperature_seq = temperature_seq.float()
     """Generate random-walk noise for a trajectory."""
     temp_rate_seq = (temperature_seq[:, 1:] - temperature_seq[:, :-1]) / dt
     time_steps = temp_rate_seq.size(1)
     # Sequence of random values from the same distribution
-    temp_rate_noise = torch.randn_like(temp_rate_seq, dtype = torch.float32) * (noise_std * temp_std / (time_steps ** 0.5))
+    temp_rate_noise = torch.randn_like(temp_rate_seq, dtype = torch.float32) * (noise_std * temp_rate_std / (time_steps ** 0.5))
     # Accumulate them as a random walk to get our real temp_rate noise
     temp_rate_noise = temp_rate_noise.cumsum(dim=1)
     # Accumulate again to get our temp noise
@@ -92,8 +92,8 @@ def preprocess(position_seq, temperature_seq, metadata, target_position=None, ta
     position_seq = torch.remainder(position_seq + position_noise, box_size)
     
     # Apply noise to temperature
-    temp_std = torch.tensor(metadata["temp_std"], dtype=torch.float32)
-    temperature_noise = generate_temperature_noise(temperature_seq, noise_std, temp_std, dt)
+    temp_rate_std = torch.tensor(metadata["temp_rate_std"], dtype=torch.float32)
+    temperature_noise = generate_temperature_noise(temperature_seq, noise_std, temp_rate_std, dt)
     temperature_seq = temperature_seq + temperature_noise
 
     # Compute velocities
